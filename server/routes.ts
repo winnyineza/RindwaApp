@@ -37,7 +37,7 @@ import { cache, withCache } from "./utils/cache";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
-// Active WebSocket connections for real-time notifications
+// WebSocket connections for real-time notifications
 const activeConnections = new Map<number, any>();
 
 // Helper function to send notifications for incident events
@@ -2231,13 +2231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         res.json({ message: 'Invitation resent successfully' });
       } else {
-        console.log(`\n=== INVITATION RESENT ===`);
-        console.log(`Email: ${invitation.email}`);
-        console.log(`Role: ${invitation.role}`);
-        console.log(`Invitation URL: ${process.env.FRONTEND_URL || 'http://localhost:5000'}/accept-invitation/${invitation.token}`);
-        console.log(`Expires: ${invitation.expiresAt}`);
-        console.log(`Note: Email delivery failed. Please share the URL manually.`);
-        console.log(`=========================\n`);
+        logger.warn(`Invitation email delivery failed for ${invitation.email}. Manual sharing required.`);
         
         res.json({ 
           message: 'Invitation resent (email delivery failed - check console for manual link)',
@@ -2569,9 +2563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Update profile picture
   app.post("/api/profile/picture", authenticateToken, async (req: Request, res: Response) => {
-    console.log('Profile picture upload endpoint hit');
-    console.log('Request body keys:', Object.keys(req.body || {}));
-    console.log('Request body size:', JSON.stringify(req.body || {}).length);
+    logger.info('Profile picture upload endpoint accessed');
     
     try {
       const userId = req.user.userId;
@@ -2594,7 +2586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Only image files are allowed' });
       }
       
-      console.log('Profile picture upload started:', { userId, fileName, fileType });
+      logger.info(`Profile picture upload started for user ${userId}`);
       
       // Create uploads directory if it doesn't exist
       const fs = require('fs');

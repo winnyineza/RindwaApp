@@ -64,10 +64,7 @@ export const IncidentMap: React.FC<IncidentMapProps> = ({
   );
 
   // Debug logging
-  console.log('All incidents:', incidents.length);
-  console.log('Valid incidents with coordinates:', validIncidents.length);
-  console.log('Sample incident:', incidents[0]);
-  console.log('Valid incidents:', validIncidents);
+
 
   const mapOptions = {
     disableDefaultUI: !showControls,

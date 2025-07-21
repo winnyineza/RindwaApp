@@ -119,9 +119,7 @@ export const LoginForm = () => {
               type="button"
               className="text-sm text-gray-600 hover:text-gray-800 underline cursor-pointer bg-transparent border-none p-0"
               onClick={() => {
-                console.log('Forgot password clicked, navigating to /forgot-password');
                 setLocation('/forgot-password');
-                console.log('Navigation called');
               }}
             >
               Forgot your password?

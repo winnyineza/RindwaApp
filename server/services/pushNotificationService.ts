@@ -1,5 +1,6 @@
 import type { DatabaseStorage } from '../storage';
 import { sendEmailMessage } from '../communication';
+import { logger } from '../utils/logger';
 
 export interface PushNotification {
   id: string;
@@ -151,7 +152,7 @@ export class PushNotificationService {
               body: notification.body,
               data: notification.data,
             });
-            console.log(`📱 Push notification sent to subscriber ${subscriber.id}`);
+            logger.info(`Push notification sent to subscriber ${subscriber.id}`);
           } catch (error) {
             console.error(`Failed to send push notification to ${subscriber.id}:`, error);
           }
@@ -159,7 +160,7 @@ export class PushNotificationService {
 
       await Promise.all(pushPromises);
 
-      console.log(`📢 Sent progress update to ${subscribers.length} subscribers for incident #${incidentId}`);
+      logger.info(`Sent progress update to ${subscribers.length} subscribers for incident #${incidentId}`);
     } catch (error) {
       console.error('Failed to send incident progress update:', error);
       throw error;
@@ -209,7 +210,7 @@ export class PushNotificationService {
             html: htmlContent,
           });
           
-          console.log(`📧 Resolution email sent to ${subscriber.email}`);
+          logger.info(`Resolution email sent to ${subscriber.email}`);
         } catch (error) {
           console.error(`Failed to send resolution email to ${subscriber.email}:`, error);
         }
@@ -379,7 +380,7 @@ export class PushNotificationService {
       };
 
       // Simulate push notification for development
-      console.log(`📱 PUSH NOTIFICATION SENT:`, pushData);
+      logger.info(`Push notification sent: ${pushData.title}`);
       
       // In production, make actual API call to FCM:
       // const response = await fetch('https://fcm.googleapis.com/fcm/send', {
@@ -417,7 +418,7 @@ export class PushNotificationService {
       );
       
       this.activeSubscriptions.set(incidentId, updatedSubscribers);
-      console.log(`❌ Unsubscribed ${subscriptionId} from incident #${incidentId}`);
+      logger.info(`Unsubscribed ${subscriptionId} from incident #${incidentId}`);
     } catch (error) {
       console.error('Failed to unsubscribe from incident:', error);
       throw error;

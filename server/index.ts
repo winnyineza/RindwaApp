@@ -55,7 +55,7 @@ app.get('/metrics', performanceReport);
 // API documentation
 setupSwagger(app);
 
-// Legacy logging middleware (keeping for compatibility)
+// Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -93,9 +93,7 @@ app.use((req, res, next) => {
     // Error handling middleware
     app.use(errorHandler);
 
-    // importantly only setup vite in development and after
-    // setting up all the other routes so the catch-all route
-    // doesn't interfere with the other routes
+    // Setup Vite in development after all routes to avoid catch-all interference
     if (app.get("env") === "development") {
       await setupVite(app, server);
     } else {

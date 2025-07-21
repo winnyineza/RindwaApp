@@ -50,7 +50,7 @@ export class FollowUpService {
       };
 
       // Store in database (simplified - in production use proper storage)
-      console.log('Registered citizen for follow-up:', followUp);
+
 
       // Send confirmation
       if (citizenEmail && (notificationPreference === 'email' || notificationPreference === 'both')) {
@@ -59,7 +59,7 @@ export class FollowUpService {
 
       return followUp;
     } catch (error) {
-      console.error('Failed to register for follow-up:', error);
+
       throw error;
     }
   }
@@ -95,9 +95,9 @@ export class FollowUpService {
         }
       }
 
-      console.log(`Sent incident update to ${followers.length} followers`);
+
     } catch (error) {
-      console.error('Failed to send incident update:', error);
+
       throw error;
     }
   }

@@ -30,21 +30,7 @@ export const IncidentTable = () => {
   const { data: incidents, isLoading } = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
     queryFn: getIncidents,
-    enabled: !authLoading && !!user, // Only run query when user is authenticated
-    onSuccess: (data) => {
-      console.log('=== DEBUGGING INCIDENTS DATA ===');
-      console.log('User:', user);
-      console.log('User role:', user?.role);
-      console.log('User station ID:', user?.stationId);
-      console.log('User ID:', user?.userId);
-      console.log('Incidents data:', data);
-      if (data && data.length > 0) {
-        console.log('First incident:', data[0]);
-        console.log('First incident keys:', Object.keys(data[0]));
-        console.log('Incident station IDs:', data.map(i => i.stationId));
-      }
-      console.log('=== END DEBUGGING ===');
-    }
+          enabled: !authLoading && !!user
   });
 
   const assignMutation = useMutation({
@@ -92,7 +78,7 @@ export const IncidentTable = () => {
     // Role-based filtering for station incidents
     if (user?.role === 'station_staff' || user?.role === 'station_admin') {
       const stationMatches = incident.stationId === user.stationId;
-      console.log(`Filtering incident ${incident.id}: stationId=${incident.stationId}, userStationId=${user.stationId}, matches=${stationMatches}`);
+
       return matchesSearch && matchesStatus && stationMatches;
     } else if (user?.role === 'super_admin') {
       return matchesSearch && matchesStatus && incident.organizationId === user.organizationId;
@@ -101,22 +87,11 @@ export const IncidentTable = () => {
     return matchesSearch && matchesStatus;
   }) || [];
 
-  console.log('=== FILTERING RESULTS ===');
-  console.log('All incidents:', incidents?.length || 0);
-  console.log('All station incidents:', allStationIncidents.length);
-  console.log('User role:', user?.role);
-  console.log('User station ID:', user?.stationId);
-
-  // Filter incidents assigned to current user
   const myAssignedIncidents = allStationIncidents?.filter(incident => {
-    const currentUserId = user?.userId || user?.id;
+    const currentUserId = user?.id;
     const isAssigned = incident.assignedToId === currentUserId;
-    console.log(`Incident ${incident.id} assigned check: assignedToId=${incident.assignedToId}, userId=${currentUserId}, isAssigned=${isAssigned}`);
     return isAssigned;
   }) || [];
-
-  console.log('My assigned incidents:', myAssignedIncidents.length);
-  console.log('=== END FILTERING RESULTS ===');
 
   // Choose which incidents to display based on active tab
   const filteredIncidents = activeTab === "assigned" ? myAssignedIncidents : allStationIncidents;
@@ -146,8 +121,8 @@ export const IncidentTable = () => {
   };
 
   const handleSelfAssign = (incident: Incident) => {
-    const currentUserId = user?.userId || user?.id;
-    console.log('Self-assign attempt:', { incidentId: incident.id, userId: currentUserId });
+    const currentUserId = user?.id;
+    
     if (currentUserId) {
       assignMutation.mutate({
         id: incident.id,
@@ -453,7 +428,7 @@ export const IncidentTable = () => {
                       <Select
                         value=""
                         onValueChange={(value) => {
-                          console.log('Station staff action selected:', value, 'for incident:', incident.id);
+                    
                           handleWorkflowChange(incident, value);
                         }}
                       >
@@ -525,7 +500,7 @@ export const IncidentTable = () => {
                       <Select
                         value=""
                         onValueChange={(value) => {
-                          console.log('Station admin action selected:', value, 'for incident:', incident.id);
+                    
                           handleWorkflowChange(incident, value);
                         }}
                       >

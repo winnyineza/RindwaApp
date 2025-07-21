@@ -59,7 +59,7 @@ class ApiService {
       }
       
       const incidents = await response.json();
-      console.log('Fetched public incidents:', incidents.length);
+      
       return incidents;
     } catch (error) {
       console.error('Error fetching public incidents:', error);
@@ -102,7 +102,7 @@ class ApiService {
       }
 
       const incident = await response.json();
-      console.log('Incident reported successfully:', incident);
+      
       return incident;
     } catch (error) {
       console.error('Error submitting incident report:', error);
@@ -128,7 +128,7 @@ class ApiService {
       }
 
       const incident = await response.json();
-      console.log('Incident upvoted successfully:', incident);
+      
       return incident;
     } catch (error) {
       console.error('Error upvoting incident:', error);
@@ -154,7 +154,7 @@ class ApiService {
         throw new Error('Failed to send emergency alert');
       }
 
-      console.log('Emergency alert sent successfully');
+      
     } catch (error) {
       console.error('Error sending emergency alert:', error);
       throw error;
@@ -180,7 +180,7 @@ class ApiService {
       }
 
       const data = await response.json();
-      console.log('Login successful');
+      
       return data;
     } catch (error) {
       console.error('Error during login:', error);
@@ -214,7 +214,7 @@ class ApiService {
       }
 
       const data = await response.json();
-      console.log('Registration successful');
+      
       return data;
     } catch (error) {
       console.error('Error during registration:', error);
