@@ -167,7 +167,10 @@ export default function AnalyticsPage() {
   const { data: advancedAnalytics, isLoading: analyticsLoading, error: analyticsError, refetch: refetchAdvanced } = useQuery<AdvancedAnalyticsData>({
     queryKey: ['/api/analytics/advanced', timeframe],
     queryFn: async () => {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('@rindwa/token');
+      console.log('Token exists:', !!token);
+      console.log('User role:', user?.role);
+      
       const response = await fetch(`/api/analytics/advanced?timeframe=${timeframe}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -175,12 +178,16 @@ export default function AnalyticsPage() {
         }
       });
       
+      console.log('Response status:', response.status);
+      
       if (!response.ok) {
         const errorData = await response.json();
+        console.log('Error response:', errorData);
         throw new Error('Failed to fetch analytics');
       }
       
       const data = await response.json();
+      console.log('Advanced Analytics Data:', data);
       return data;
     },
     enabled: user?.role === 'main_admin' || user?.role === 'super_admin',
@@ -212,7 +219,9 @@ export default function AnalyticsPage() {
   });
 
   // Debug logging
-
+  console.log('Advanced Analytics:', advancedAnalytics);
+  console.log('Analytics Loading:', analyticsLoading);
+  console.log('Analytics Error:', analyticsError);
 
   const totalUsers = users?.length || 0;
   const activeUsers = users?.filter((u: any) => u.isActive).length || 0;

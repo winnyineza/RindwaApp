@@ -20,7 +20,7 @@ export function formatDate(dateString: string | Date | null | undefined): string
       day: 'numeric'
     });
   } catch (error) {
-
+    console.warn('Error formatting date:', error);
     return "Invalid Date";
   }
 }
@@ -46,7 +46,7 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
       second: '2-digit'
     });
   } catch (error) {
-
+    console.warn('Error formatting date time:', error);
     return "Invalid Date";
   }
 }
@@ -65,7 +65,7 @@ export function formatDateOnly(dateString: string | Date | null | undefined): st
     
     return date.toISOString().split('T')[0];
   } catch (error) {
-
+    console.warn('Error formatting date only:', error);
     return "Invalid Date";
   }
 }

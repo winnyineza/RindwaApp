@@ -17,8 +17,8 @@ import { apiRequest } from '@/lib/queryClient';
 interface InvitationFormData {
   email: string;
   role: string;
-  organizationId?: number;
-  stationId?: number;
+  organisationId?: string; // UUID string, British spelling
+  stationId?: string; // UUID string
 }
 
 interface Invitation {
@@ -42,7 +42,7 @@ export const InvitationManager = () => {
   const [formData, setFormData] = useState<InvitationFormData>({
     email: '',
     role: '',
-    organizationId: undefined,
+    organisationId: undefined,
     stationId: undefined
   });
 
@@ -57,11 +57,12 @@ export const InvitationManager = () => {
     enabled: user?.role === 'super_admin'
   });
 
-  // Get invitations (mock query for now)
-  const { data: invitations = [] } = useQuery({
-    queryKey: ['/api/invitations'],
-    queryFn: () => Promise.resolve([]), // TODO: Implement invitation listing endpoint
-    enabled: false // Disable until endpoint is implemented
+  // Get invitations using the correct API endpoint
+  const { data: invitations = [] } = useQuery<Invitation[]>({
+    queryKey: ['/api/invitations/list'],
+    enabled: !!user && ['main_admin', 'super_admin', 'station_admin'].includes(user.role),
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
   const sendInvitationMutation = useMutation({
@@ -75,8 +76,8 @@ export const InvitationManager = () => {
         description: "The invitation has been sent successfully.",
       });
       setIsDialogOpen(false);
-      setFormData({ email: '', role: '', organizationId: undefined, stationId: undefined });
-      queryClient.invalidateQueries({ queryKey: ['/api/invitations'] });
+      setFormData({ email: '', role: '', organisationId: undefined, stationId: undefined });
+      queryClient.invalidateQueries({ queryKey: ['/api/invitations/list'] });
     },
     onError: (error: any) => {
       toast({
@@ -105,7 +106,7 @@ export const InvitationManager = () => {
     
     const submissionData = {
       ...formData,
-      organizationId: user?.role === 'super_admin' ? user.organizationId : formData.organizationId,
+      organisationId: user?.role === 'super_admin' ? user.organisationId : formData.organisationId,
       stationId: user?.role === 'station_admin' ? user.stationId : formData.stationId
     };
 
@@ -176,15 +177,15 @@ export const InvitationManager = () => {
               {user?.role === 'main_admin' && (
                 <div>
                   <Label htmlFor="organization">Organization</Label>
-                  <Select 
-                    value={formData.organizationId?.toString()} 
-                    onValueChange={(value) => setFormData({ ...formData, organizationId: parseInt(value) })}
+                                  <Select 
+                  value={formData.organisationId?.toString()} 
+                  onValueChange={(value) => setFormData({ ...formData, organisationId: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select organization" />
                     </SelectTrigger>
                     <SelectContent>
-                      {organizations?.map((org: any) => (
+                      {(organizations as any[] || []).map((org: any) => (
                         <SelectItem key={org.id} value={org.id.toString()}>
                           {org.name}
                         </SelectItem>
@@ -199,13 +200,13 @@ export const InvitationManager = () => {
                   <Label htmlFor="station">Station</Label>
                   <Select 
                     value={formData.stationId?.toString()} 
-                    onValueChange={(value) => setFormData({ ...formData, stationId: parseInt(value) })}
+                    onValueChange={(value) => setFormData({ ...formData, stationId: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select station" />
                     </SelectTrigger>
                     <SelectContent>
-                      {stations?.map((station: any) => (
+                      {(stations as any[] || []).map((station: any) => (
                         <SelectItem key={station.id} value={station.id.toString()}>
                           {station.name}
                         </SelectItem>

@@ -14,10 +14,10 @@ if (RESEND_API_KEY) {
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY);
 
-  } 
-if (!RESEND_API_KEY && !SENDGRID_API_KEY) {
-  
 } 
+if (!RESEND_API_KEY && !SENDGRID_API_KEY) {
+  console.warn("No email service configured. Email functionality will be disabled.");
+}
 
 interface EmailParams {
   to: string;
@@ -45,7 +45,7 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
         const result = await resend.emails.send(emailData);
         
         if (result.error) {
-    
+          console.log(`Resend failed with error: ${JSON.stringify(result.error)}`);
           throw new Error(`Resend API error: ${result.error.message || JSON.stringify(result.error)}`);
         }
         
@@ -55,21 +55,27 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
         }
       } else {
         // Skip Resend for unverified emails and go straight to SendGrid
-  
+        console.log(`Skipping Resend for ${params.to} (not your verified email), trying SendGrid...`);
         throw new Error("Skipping to SendGrid for unverified recipient");
       }
     } catch (error: any) {
-
+      console.error('Resend email error:', error);
+      // If it's a domain verification error, explain and fall back
+      if (error?.error?.statusCode === 403) {
+        console.error(`Resend domain verification issue detected.`);
+        console.error(`Error: ${error.error?.error || 'Domain not verified'}`);
+        console.error(`Falling back to SendGrid for ${params.to}...`);
+      }
     }
   }
 
   // Fallback to SendGrid
   if (!SENDGRID_API_KEY) {
-
+    console.error("Cannot send email: No SendGrid API key configured");
     return false;
   }
   
-
+  console.log(`Attempting to send email via SendGrid to ${params.to}...`);
 
   try {
     const emailData: any = {
@@ -82,11 +88,28 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
     if (params.text) emailData.text = params.text;
     
     await sgMail.send(emailData);
-    
+    console.log(`Email sent successfully via SendGrid to ${params.to}`);
     return true;
   } catch (error: any) {
     // Handle SendGrid specific errors
-
+    console.error('SendGrid email error:', error);
+    
+    // Log detailed error information
+    if (error.response?.body?.errors) {
+      console.error('SendGrid detailed errors:', JSON.stringify(error.response.body.errors, null, 2));
+    }
+    if (error.response?.body) {
+      console.error('SendGrid full response body:', JSON.stringify(error.response.body, null, 2));
+    }
+    
+    // Log email details for debugging when SendGrid fails
+    console.error(`=== EMAIL DELIVERY FAILED ===`);
+    console.error(`To: ${params.to}`);
+    console.error(`Subject: ${params.subject}`);
+    console.error(`From: ${params.from || "no-reply@rindwa.com"}`);
+    console.error(`Error: ${error.message || error}`);
+    console.error(`API Key starts with: ${SENDGRID_API_KEY ? SENDGRID_API_KEY.substring(0, 10) + '...' : 'Not configured'}`);
+    console.error(`=============================`);
     
     return false;
   }

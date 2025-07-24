@@ -176,10 +176,10 @@ export const UserProfile = () => {
                 <User className="w-4 h-4 text-gray-500" />
                 <span className="text-sm">{getRoleLabel(user.role)}</span>
               </div>
-              {user.organizationId && (
+              {user.organisationId && (
                 <div className="flex items-center gap-2">
                   <Building className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm">Organization ID: {user.organizationId}</span>
+                  <span className="text-sm">Organization ID: {user.organisationId}</span>
                 </div>
               )}
               {user.stationId && (

@@ -26,33 +26,33 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  updateUser(id: number, updates: Partial<InsertUser>): Promise<User>;
+  updateUser(id: string, updates: Partial<InsertUser>): Promise<User>;
   getUsersByRole(role: string): Promise<User[]>;
-  getUsersByOrganization(orgId: number, role?: string): Promise<User[]>;
-  getUsersByStation(stationId: number, role?: string): Promise<User[]>;
+  getUsersByOrganization(orgId: string, role?: string): Promise<User[]>;
+  getUsersByStation(stationId: string, role?: string): Promise<User[]>;
 
   // Organization operations
-  getOrganization(id: number): Promise<Organization | undefined>;
+  getOrganization(id: string): Promise<Organization | undefined>;
   getAllOrganizations(): Promise<Organization[]>;
   createOrganization(org: InsertOrganization): Promise<Organization>;
-  updateOrganization(id: number, updates: Partial<InsertOrganization>): Promise<Organization>;
-  deleteOrganization(id: number): Promise<void>;
+  updateOrganization(id: string, updates: Partial<InsertOrganization>): Promise<Organization>;
+  deleteOrganization(id: string): Promise<void>;
 
   // Station operations
-  getStation(id: number): Promise<Station | undefined>;
-  getStationsByOrganization(orgId: number): Promise<Station[]>;
+  getStation(id: string): Promise<Station | undefined>;
+  getStationsByOrganization(orgId: string): Promise<Station[]>;
   getAllStationsWithDetails(): Promise<any[]>;
   createStation(station: InsertStation): Promise<Station>;
-  updateStation(id: number, updates: Partial<InsertStation>): Promise<Station>;
+  updateStation(id: string, updates: Partial<InsertStation>): Promise<Station>;
 
   // Incident operations
-  getIncident(id: number): Promise<Incident | undefined>;
+  getIncident(id: string): Promise<Incident | undefined>;
   getAllIncidents(): Promise<Incident[]>;
-  getIncidentsByOrganization(orgId: number): Promise<Incident[]>;
-  getIncidentsByStation(stationId: number): Promise<Incident[]>;
-  getIncidentsByAssignee(userId: number): Promise<Incident[]>;
+  getIncidentsByOrganization(orgId: string): Promise<Incident[]>;
+  getIncidentsByStation(stationId: string): Promise<Incident[]>;
+  getIncidentsByAssignee(userId: string): Promise<Incident[]>;
   createIncident(incident: InsertIncident): Promise<Incident>;
-  updateIncident(id: number, updates: Partial<InsertIncident>): Promise<Incident>;
+  updateIncident(id: string, updates: Partial<InsertIncident>): Promise<Incident>;
   getIncidentStats(): Promise<{
     total: number;
     pending: number;
@@ -81,7 +81,7 @@ export interface IStorage {
   getInvitation(token: string): Promise<Invitation | undefined>;
   getInvitationById(id: number): Promise<Invitation | undefined>;
   getInvitationsList(): Promise<Invitation[]>;
-  getInvitationsByUser(userId: number): Promise<Invitation[]>;
+  getInvitationsByUser(userId: string): Promise<Invitation[]>;
   markInvitationAsUsed(token: string): Promise<void>;
   deleteExpiredInvitations(): Promise<void>;
   deleteInvitation(id: number): Promise<void>;
@@ -108,11 +108,11 @@ export interface IStorage {
   markAllNotificationsAsRead(userId: number): Promise<void>;
   deleteNotification(id: number): Promise<void>;
 
-  // Emergency Contact operations
-  getEmergencyContactsByUser(userId: number): Promise<EmergencyContact[]>;
+  // Emergency Contact operations  
+  getEmergencyContactsByUser(userId: string): Promise<EmergencyContact[]>;
   createEmergencyContact(contact: InsertEmergencyContact): Promise<EmergencyContact>;
-  updateEmergencyContact(id: number, updates: Partial<InsertEmergencyContact>): Promise<EmergencyContact>;
-  deleteEmergencyContact(id: number): Promise<void>;
+  updateEmergencyContact(id: string, userId: string, updates: Partial<InsertEmergencyContact>): Promise<EmergencyContact | null>;
+  deleteEmergencyContact(id: string, userId: string): Promise<boolean>;
 }
 
 // Type aliases for easier usage
@@ -164,22 +164,22 @@ export class DatabaseStorage implements IStorage {
     const result = await sequelize.query(
       `INSERT INTO users (
         id, email, password, "firstName", "lastName", phone, role, 
-        "organizationId", "stationId", "isActive", "isInvited", "invitedBy", 
+        "organisationId", "stationId", "isActive", "isInvited", "invitedBy", 
         "invitedAt", "lastLoginAt", "createdAt", "updatedAt"
       ) VALUES (
         gen_random_uuid(), :email, :password, :firstName, :lastName, :phone, :role,
-        :organizationId, :stationId, :isActive, :isInvited, :invitedBy,
+        :organisationId, :stationId, :isActive, :isInvited, :invitedBy,
         :invitedAt, :lastLoginAt, NOW(), NOW()
       ) RETURNING *`,
       {
         replacements: {
           email: insertUser.email,
           password: insertUser.password,
-          firstName: insertUser.firstName,
-          lastName: insertUser.lastName,
-          phone: insertUser.phone,
+          firstName: insertUser.firstName || '',
+          lastName: insertUser.lastName || '',
+          phone: insertUser.phone || null,
           role: insertUser.role,
-          organizationId: insertUser.organizationId || null,
+          organisationId: insertUser.organisationId || null,
           stationId: insertUser.stationId || null,
           isActive: insertUser.isActive ?? true,
           isInvited: insertUser.isInvited ?? false,
@@ -193,12 +193,15 @@ export class DatabaseStorage implements IStorage {
     return result[0] as User;
   }
 
-  async updateUser(id: number, updates: Partial<InsertUser>): Promise<User> {
+  async updateUser(id: string, updates: Partial<InsertUser>): Promise<User> {
     const setClause = Object.keys(updates)
       .map(key => {
         const dbKey = key === 'firstName' ? '"firstName"' : 
                      key === 'lastName' ? '"lastName"' :
-                     key === 'organizationId' ? '"organizationId"' :
+                     key === 'email' ? 'email' :
+                     key === 'phone' ? 'phone' :
+                     key === 'role' ? 'role' :
+                     key === 'organisationId' ? '"organisationId"' :
                      key === 'stationId' ? '"stationId"' :
                      key === 'isActive' ? '"isActive"' :
                      key === 'isInvited' ? '"isInvited"' :
@@ -209,10 +212,15 @@ export class DatabaseStorage implements IStorage {
       })
       .join(', ');
 
+    // Clean up UUID fields - convert empty strings to null
+    const cleanedUpdates = { ...updates };
+    if (cleanedUpdates.organisationId === "") cleanedUpdates.organisationId = null;
+    if (cleanedUpdates.stationId === "") cleanedUpdates.stationId = null;
+
     await sequelize.query(
       `UPDATE users SET ${setClause}, "updatedAt" = NOW() WHERE id = :id`,
       {
-        replacements: { ...updates, id },
+        replacements: { ...cleanedUpdates, id },
         type: QueryTypes.UPDATE
       }
     );
@@ -224,8 +232,7 @@ export class DatabaseStorage implements IStorage {
         type: QueryTypes.SELECT
       }
     );
-
-    if (result.length === 0) throw new Error('User not found');
+    
     return result[0] as User;
   }
 
@@ -240,8 +247,8 @@ export class DatabaseStorage implements IStorage {
     return users as User[];
   }
 
-  async getUsersByOrganization(orgId: number, role?: string): Promise<User[]> {
-    let query = 'SELECT * FROM users WHERE "organizationId" = :orgId AND "isActive" = true';
+  async getUsersByOrganization(orgId: string, role?: string): Promise<User[]> {
+    let query = 'SELECT * FROM users WHERE "organisationId" = :orgId AND "isActive" = true';
     const replacements: any = { orgId };
 
     if (role) {
@@ -256,7 +263,7 @@ export class DatabaseStorage implements IStorage {
     return users as User[];
   }
 
-  async getUsersByStation(stationId: number, role?: string): Promise<User[]> {
+  async getUsersByStation(stationId: string, role?: string): Promise<User[]> {
     let query = 'SELECT * FROM users WHERE "stationId" = :stationId AND "isActive" = true';
     const replacements: any = { stationId };
 
@@ -272,9 +279,9 @@ export class DatabaseStorage implements IStorage {
     return users as User[];
   }
 
-  async getOrganization(id: number): Promise<Organization | undefined> {
+  async getOrganization(id: string): Promise<Organization | undefined> {
     const organizations = await sequelize.query(
-      'SELECT * FROM organizations WHERE id = :id',
+      'SELECT * FROM organisations WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.SELECT
@@ -285,7 +292,7 @@ export class DatabaseStorage implements IStorage {
 
   async getAllOrganizations(): Promise<Organization[]> {
     const organizations = await sequelize.query(
-      'SELECT * FROM organizations ORDER BY created_at DESC',
+      'SELECT * FROM organisations ORDER BY created_at DESC',
       {
         type: QueryTypes.SELECT
       }
@@ -295,7 +302,7 @@ export class DatabaseStorage implements IStorage {
 
   async createOrganization(org: InsertOrganization): Promise<Organization> {
     const result = await sequelize.query(
-      'INSERT INTO organizations (name, type, description, created_at) VALUES (:name, :type, :description, NOW()) RETURNING *',
+      'INSERT INTO organisations (name, type, description, created_at) VALUES (:name, :type, :description, NOW()) RETURNING *',
       {
         replacements: {
           name: org.name,
@@ -314,7 +321,7 @@ export class DatabaseStorage implements IStorage {
       .join(', ');
 
     await sequelize.query(
-      `UPDATE organizations SET ${setClause} WHERE id = :id`,
+      `UPDATE organisations SET ${setClause} WHERE id = :id`,
       {
         replacements: { ...updates, id },
         type: QueryTypes.UPDATE
@@ -322,7 +329,7 @@ export class DatabaseStorage implements IStorage {
     );
 
     const result = await sequelize.query(
-      'SELECT * FROM organizations WHERE id = :id',
+      'SELECT * FROM organisations WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.SELECT
@@ -335,7 +342,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOrganization(id: number): Promise<void> {
     const result = await sequelize.query(
-      'DELETE FROM organizations WHERE id = :id',
+      'DELETE FROM organisations WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.DELETE
@@ -344,7 +351,7 @@ export class DatabaseStorage implements IStorage {
     if (result[1] === 0) throw new Error('Organization not found');
   }
 
-  async getStation(id: number): Promise<Station | undefined> {
+  async getStation(id: string): Promise<Station | undefined> {
     const stations = await sequelize.query(
       'SELECT * FROM stations WHERE id = :id',
       {
@@ -476,7 +483,7 @@ export class DatabaseStorage implements IStorage {
     return result[0] as Station;
   }
 
-  async getIncident(id: number): Promise<Incident | undefined> {
+  async getIncident(id: string): Promise<Incident | undefined> {
     const incidents = await sequelize.query(
       'SELECT * FROM incidents WHERE id = :id',
       {
@@ -533,36 +540,24 @@ export class DatabaseStorage implements IStorage {
   async createIncident(incident: InsertIncident): Promise<Incident> {
     const result = await sequelize.query(
       `INSERT INTO incidents (
-        title, description, "reportedById", "organisationId", "stationId", 
-        "assignedToId", status, priority, "locationLat", "locationLng", 
-        "locationAddress", "photoUrl", notes, upvotes, "escalatedBy", 
-        "escalatedAt", "escalationReason", "escalationLevel", "createdAt", "updatedAt"
+        id, title, description, type, priority, status, location, "stationId", 
+        "organisationId", "reportedById", "reported_by", "createdAt", "updatedAt"
       ) VALUES (
-        :title, :description, :reportedById, :organisationId, :stationId,
-        :assignedToId, :status, :priority, :locationLat, :locationLng,
-        :locationAddress, :photoUrl, :notes, :upvotes, :escalatedBy,
-        :escalatedAt, :escalationReason, :escalationLevel, NOW(), NOW()
+        gen_random_uuid(), :title, :description, :type, :priority, :status, :location, :stationId,
+        :organisationId, :reportedById, :reportedBy, NOW(), NOW()
       ) RETURNING *`,
       {
         replacements: {
           title: incident.title,
           description: incident.description,
-          reportedById: incident.reportedById,
-          organisationId: incident.organisationId || null,
-          stationId: incident.stationId || null,
-          assignedToId: incident.assignedToId || null,
-          status: incident.status || 'pending',
+          type: incident.type || 'other',
           priority: incident.priority || 'medium',
-          locationLat: incident.locationLat || null,
-          locationLng: incident.locationLng || null,
-          locationAddress: incident.locationAddress || null,
-          photoUrl: incident.photoUrl || null,
-          notes: incident.notes || null,
-          upvotes: incident.upvotes || 0,
-          escalatedBy: incident.escalatedBy || null,
-          escalatedAt: incident.escalatedAt || null,
-          escalationReason: incident.escalationReason || null,
-          escalationLevel: incident.escalationLevel || null
+          status: incident.status || 'reported',
+          location: JSON.stringify(incident.location || {}),
+          stationId: incident.stationId,
+          organisationId: incident.organisationId || null,
+          reportedById: incident.reportedById,
+          reportedBy: incident.reportedBy || 'Citizen Report'
         },
         type: QueryTypes.SELECT
       }
@@ -570,13 +565,31 @@ export class DatabaseStorage implements IStorage {
     return result[0] as Incident;
   }
 
-  async updateIncident(id: number, updates: Partial<InsertIncident>): Promise<Incident> {
-    const setClause = Object.keys(updates)
+  async updateIncident(id: string, updates: Partial<InsertIncident>): Promise<Incident> {
+    // Filter out undefined values to prevent SQL replacement errors
+    const filteredUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([key, value]) => value !== undefined)
+    );
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      // If no valid updates, just return the existing incident
+      const result = await sequelize.query(
+        'SELECT * FROM incidents WHERE id = :id',
+        {
+          replacements: { id },
+          type: QueryTypes.SELECT
+        }
+      );
+      return result[0] as Incident;
+    }
+
+    const setClause = Object.keys(filteredUpdates)
       .map(key => {
         const dbKey = key === 'reportedById' ? '"reportedById"' :
                      key === 'organisationId' ? '"organisationId"' :
                      key === 'stationId' ? '"stationId"' :
-                     key === 'assignedToId' ? '"assignedToId"' :
+                     key === 'assignedTo' ? '"assignedTo"' :
+                     key === 'assignedToId' ? '"assignedTo"' :
                      key === 'locationLat' ? '"locationLat"' :
                      key === 'locationLng' ? '"locationLng"' :
                      key === 'locationAddress' ? '"locationAddress"' :
@@ -584,7 +597,9 @@ export class DatabaseStorage implements IStorage {
                      key === 'escalatedBy' ? '"escalatedBy"' :
                      key === 'escalatedAt' ? '"escalatedAt"' :
                      key === 'escalationReason' ? '"escalationReason"' :
-                     key === 'escalationLevel' ? '"escalationLevel"' : key;
+                     key === 'escalationLevel' ? '"escalationLevel"' :
+                     key === 'resolvedBy' ? '"resolvedBy"' :
+                     key === 'resolvedAt' ? '"resolvedAt"' : key;
         return `${dbKey} = :${key}`;
       })
       .join(', ');
@@ -592,7 +607,7 @@ export class DatabaseStorage implements IStorage {
     await sequelize.query(
       `UPDATE incidents SET ${setClause}, "updatedAt" = NOW() WHERE id = :id`,
       {
-        replacements: { ...updates, id },
+        replacements: { ...filteredUpdates, id },
         type: QueryTypes.UPDATE
       }
     );
@@ -667,7 +682,7 @@ export class DatabaseStorage implements IStorage {
     return invitations as Invitation[];
   }
 
-  async getInvitationsByUser(userId: number): Promise<Invitation[]> {
+  async getInvitationsByUser(userId: string): Promise<Invitation[]> {
     const invitations = await sequelize.query(
       'SELECT * FROM invitations WHERE invited_by = :userId ORDER BY created_at DESC',
       {
@@ -710,19 +725,19 @@ export class DatabaseStorage implements IStorage {
   async createAuditLog(auditLog: InsertAuditLog): Promise<AuditLog> {
     const result = await sequelize.query(
       `INSERT INTO audit_logs (
-        "userId", action, "entityType", "entityId", details, 
-        "ipAddress", "userAgent", "createdAt"
+        id, "user_id", action, "resource_type", "resource_id", details, 
+        "ip_address", "user_agent", "created_at", "updated_at"
       ) VALUES (
-        :userId, :action, :entityType, :entityId, :details,
-        :ipAddress, :userAgent, NOW()
+        gen_random_uuid(), :userId, :action, :resourceType, :resourceId, :details,
+        :ipAddress, :userAgent, NOW(), NOW()
       ) RETURNING *`,
       {
         replacements: {
-          userId: auditLog.userId,
+          userId: auditLog.userId || null,
           action: auditLog.action,
-          entityType: auditLog.entityType,
-          entityId: auditLog.entityId,
-          details: auditLog.details,
+          resourceType: auditLog.resourceType || null,
+          resourceId: auditLog.resourceId || null,
+          details: typeof auditLog.details === 'string' ? auditLog.details : JSON.stringify(auditLog.details),
           ipAddress: auditLog.ipAddress || null,
           userAgent: auditLog.userAgent || null
         },
@@ -738,8 +753,8 @@ export class DatabaseStorage implements IStorage {
         al.*, 
         u."firstName", u."lastName", u.email, u.role
       FROM audit_logs al 
-      LEFT JOIN users u ON al."userId" = u.id 
-      ORDER BY al."createdAt" DESC 
+      LEFT JOIN users u ON al."user_id" = u.id 
+      ORDER BY al."created_at" DESC 
       LIMIT :limit OFFSET :offset`,
       {
         replacements: { limit, offset },
@@ -751,7 +766,7 @@ export class DatabaseStorage implements IStorage {
 
   async getAuditLogsByUser(userId: number): Promise<AuditLog[]> {
     const auditLogs = await sequelize.query(
-      'SELECT * FROM audit_logs WHERE "userId" = :userId ORDER BY "createdAt" DESC',
+      'SELECT * FROM audit_logs WHERE "user_id" = :userId ORDER BY "created_at" DESC',
       {
         replacements: { userId },
         type: QueryTypes.SELECT
@@ -762,7 +777,7 @@ export class DatabaseStorage implements IStorage {
 
   async getAuditLogsByEntity(entityType: string, entityId: number): Promise<AuditLog[]> {
     const auditLogs = await sequelize.query(
-      'SELECT * FROM audit_logs WHERE "entityType" = :entityType AND "entityId" = :entityId ORDER BY "createdAt" DESC',
+      'SELECT * FROM audit_logs WHERE "resource_type" = :entityType AND "resource_id" = :entityId ORDER BY "created_at" DESC',
       {
         replacements: { entityType, entityId },
         type: QueryTypes.SELECT
@@ -875,11 +890,9 @@ export class DatabaseStorage implements IStorage {
   async createNotification(notification: InsertNotification): Promise<Notification> {
     const result = await sequelize.query(
       `INSERT INTO notifications (
-        "userId", type, title, message, "relatedEntityType", 
-        "relatedEntityId", "actionRequired", "isRead", "createdAt"
+        "user_id", type, title, message, data, read, priority, "created_at", "updated_at"
       ) VALUES (
-        :userId, :type, :title, :message, :relatedEntityType,
-        :relatedEntityId, :actionRequired, :isRead, NOW()
+        :userId, :type, :title, :message, :data, :read, :priority, NOW(), NOW()
       ) RETURNING *`,
       {
         replacements: {
@@ -887,10 +900,10 @@ export class DatabaseStorage implements IStorage {
           type: notification.type,
           title: notification.title,
           message: notification.message,
-          relatedEntityType: notification.relatedEntityType || null,
-          relatedEntityId: notification.relatedEntityId || null,
-          actionRequired: notification.actionRequired ?? false,
-          isRead: notification.isRead ?? false
+          data: notification.relatedEntityType && notification.relatedEntityId ? 
+            { entityType: notification.relatedEntityType, entityId: notification.relatedEntityId } : {},
+          read: notification.isRead ?? false,
+          priority: 'low'
         },
         type: QueryTypes.SELECT
       }
@@ -900,7 +913,7 @@ export class DatabaseStorage implements IStorage {
 
   async getNotificationsByUser(userId: number): Promise<Notification[]> {
     const notifications = await sequelize.query(
-      'SELECT * FROM notifications WHERE "userId" = :userId ORDER BY "createdAt" DESC',
+      'SELECT * FROM notifications WHERE "user_id" = :userId ORDER BY "created_at" DESC',
       {
         replacements: { userId },
         type: QueryTypes.SELECT
@@ -911,7 +924,7 @@ export class DatabaseStorage implements IStorage {
 
   async getUnreadNotifications(userId: number): Promise<Notification[]> {
     const notifications = await sequelize.query(
-      'SELECT * FROM notifications WHERE "userId" = :userId AND "isRead" = false ORDER BY "createdAt" DESC',
+      'SELECT * FROM notifications WHERE "user_id" = :userId AND read = false ORDER BY "created_at" DESC',
       {
         replacements: { userId },
         type: QueryTypes.SELECT
@@ -922,7 +935,7 @@ export class DatabaseStorage implements IStorage {
 
   async markNotificationAsRead(id: number): Promise<void> {
     await sequelize.query(
-      'UPDATE notifications SET "isRead" = true WHERE id = :id',
+      'UPDATE notifications SET read = true WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.UPDATE
@@ -932,7 +945,7 @@ export class DatabaseStorage implements IStorage {
 
   async markAllNotificationsAsRead(userId: number): Promise<void> {
     await sequelize.query(
-      'UPDATE notifications SET "isRead" = true WHERE "userId" = :userId',
+      'UPDATE notifications SET read = true WHERE "user_id" = :userId',
       {
         replacements: { userId },
         type: QueryTypes.UPDATE
@@ -1038,9 +1051,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Emergency Contact operations
-  async getEmergencyContactsByUser(userId: number): Promise<EmergencyContact[]> {
+  async getEmergencyContactsByUser(userId: string): Promise<EmergencyContact[]> {
     const contacts = await sequelize.query(
-      'SELECT * FROM emergency_contacts WHERE "userId" = :userId ORDER BY "createdAt" DESC',
+      'SELECT * FROM emergency_contacts WHERE user_id = :userId ORDER BY created_at DESC',
       {
         replacements: { userId },
         type: QueryTypes.SELECT
@@ -1050,59 +1063,91 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEmergencyContact(contact: InsertEmergencyContact): Promise<EmergencyContact> {
-    const result = await sequelize.query(
-      `INSERT INTO emergency_contacts (
-        "userId", name, phone, relationship, "createdAt", "updatedAt"
-      ) VALUES (
-        :userId, :name, :phone, :relationship, NOW(), NOW()
-      ) RETURNING *`,
+    try {
+      console.log('Creating emergency contact with data:', contact);
+      
+      const result = await sequelize.query(
+        `INSERT INTO emergency_contacts (
+          id, user_id, name, phone, relationship, priority, created_at, updated_at
+        ) VALUES (
+          gen_random_uuid(), :userId, :name, :phone, :relationship, 1, NOW(), NOW()
+        ) RETURNING *`,
+        {
+          replacements: {
+            userId: contact.userId,
+            name: contact.name,
+            phone: contact.phone,
+            relationship: contact.relationship
+          },
+          type: QueryTypes.SELECT
+        }
+      );
+      
+      console.log('Emergency contact created successfully:', result[0]);
+      return result[0] as EmergencyContact;
+    } catch (error) {
+      console.error('Error creating emergency contact:', error);
+      console.error('Error details:', {
+        message: error.message,
+        name: error.name,
+        original: error.original,
+        sql: error.sql
+      });
+      throw error;
+    }
+  }
+
+  async updateEmergencyContact(id: string, userId: string, updates: Partial<InsertEmergencyContact>): Promise<EmergencyContact | null> {
+    // First verify the contact belongs to the user
+    const existing = await sequelize.query(
+      'SELECT * FROM emergency_contacts WHERE id = :id AND user_id = :userId',
       {
-        replacements: {
-          userId: contact.userId,
-          name: contact.name,
-          phone: contact.phone,
-          relationship: contact.relationship
-        },
+        replacements: { id, userId },
         type: QueryTypes.SELECT
       }
     );
-    return result[0] as EmergencyContact;
-  }
 
-  async updateEmergencyContact(id: number, updates: Partial<InsertEmergencyContact>): Promise<EmergencyContact> {
-    const setClause = Object.keys(updates)
-      .map(key => {
-        const dbKey = key === 'userId' ? '"userId"' : key;
-        return `${dbKey} = :${key}`;
-      })
+    if (existing.length === 0) {
+      return null; // Contact not found or doesn't belong to user
+    }
+
+    // Build SET clause for valid columns only
+    const validColumns = ['name', 'phone', 'relationship', 'email', 'address', 'notes'];
+    const filteredUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([key, value]) => 
+        validColumns.includes(key) && value !== undefined
+      )
+    );
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      return existing[0] as EmergencyContact;
+    }
+
+    const setClause = Object.keys(filteredUpdates)
+      .map(key => `${key} = :${key}`)
       .join(', ');
 
     const result = await sequelize.query(
-      `UPDATE emergency_contacts SET ${setClause}, "updatedAt" = NOW() WHERE id = :id RETURNING *`,
+      `UPDATE emergency_contacts SET ${setClause}, updated_at = NOW() WHERE id = :id AND user_id = :userId RETURNING *`,
       {
-        replacements: { ...updates, id },
+        replacements: { ...filteredUpdates, id, userId },
         type: QueryTypes.SELECT
       }
     );
 
-    if (result.length === 0) {
-      throw new Error('Emergency contact not found');
-    }
-
-    return result[0] as EmergencyContact;
+    return result.length > 0 ? result[0] as EmergencyContact : null;
   }
 
-  async deleteEmergencyContact(id: number): Promise<void> {
+  async deleteEmergencyContact(id: string, userId: string): Promise<boolean> {
     const result = await sequelize.query(
-      'DELETE FROM emergency_contacts WHERE id = :id',
+      'DELETE FROM emergency_contacts WHERE id = :id AND user_id = :userId',
       {
-        replacements: { id },
+        replacements: { id, userId },
         type: QueryTypes.DELETE
       }
     );
-    if (result[1] === 0) {
-      throw new Error('Emergency contact not found');
-    }
+    // result[1] is the number of affected rows for DELETE queries
+    return (result[1] as number) > 0;
   }
 
   // Performance analytics methods

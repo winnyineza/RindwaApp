@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { sequelize } from '../db';
-import { logger } from '../utils/logger';
+import logger from '../utils/logger';
 
 interface HealthStatus {
   status: 'healthy' | 'unhealthy';

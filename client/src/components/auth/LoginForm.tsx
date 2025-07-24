@@ -40,14 +40,14 @@ export const LoginForm = () => {
     try {
       const response = await loginApi(data.email, data.password);
       
-      // Clear any existing state first
+      // Clear any existing authentication data first
       localStorage.clear();
       
-      // Use the login method from useAuth
+      // Store token and set user state
       login(response.token);
       
-      // Navigate to dashboard
-      setLocation("/");
+      // Immediate redirect - don't wait for React state updates
+      window.location.href = "/dashboard";
       
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -119,7 +119,9 @@ export const LoginForm = () => {
               type="button"
               className="text-sm text-gray-600 hover:text-gray-800 underline cursor-pointer bg-transparent border-none p-0"
               onClick={() => {
+                console.log('Forgot password clicked, navigating to /forgot-password');
                 setLocation('/forgot-password');
+                console.log('Navigation called');
               }}
             >
               Forgot your password?

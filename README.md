@@ -49,7 +49,7 @@ A comprehensive emergency incident management platform that empowers citizens an
 - Jest for testing
 - Swagger for API documentation
 
-## Installation
+## 📦 Installation
 
 1. **Clone the repository**
    ```bash
@@ -168,7 +168,9 @@ Once the server is running, visit:
 2. **Platform-as-a-Service** (Heroku, Railway, Render)
 3. **Container Deployment** (Docker, Kubernetes)
 
-## User Roles
+See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for detailed instructions.
+
+## 👥 User Roles
 
 ### Main Admin
 - System-wide organization management
@@ -190,14 +192,14 @@ Once the server is running, visit:
 - Status updates
 - Field operations
 
-## Mobile App
+## 📱 Mobile App
 
 The mobile app is currently a responsive web application. For native mobile apps:
 
 1. **Current**: Web-based (works in mobile browsers)
 2. **Future**: Convert to React Native for native apps
 
-## Security
+## 🔐 Security
 
 ### Authentication Flow
 1. User logs in with email/password
@@ -216,7 +218,7 @@ The mobile app is currently a responsive web application. For native mobile apps
 - SQL injection protection via ORM
 - XSS protection through sanitization
 
-## Contributing
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -225,18 +227,18 @@ The mobile app is currently a responsive web application. For native mobile apps
 5. Run the test suite
 6. Submit a pull request
 
-## License
+## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
+## 🆘 Support
 
 For support and questions:
 - Email: support@rindwa.com
 - Documentation: `/api-docs`
 - Health Status: `/health`
 
-## Monitoring
+## 📈 Monitoring
 
 ### Health Endpoints
 - `/health` - Complete health check
@@ -268,7 +270,7 @@ npm run backup:files   # Files only
 npm run backup:full    # Complete backup
 ```
 
-## Internationalization
+## 🌐 Internationalization
 
 Supported languages:
 - English (en)

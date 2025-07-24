@@ -32,28 +32,26 @@ import { useAuth } from "@/hooks/useAuth";
 import { formatDateTime } from "@/lib/dateUtils";
 
 interface AuditLog {
-  id: number;
-  userId: number;
+  id: string;
+  user_id: string | null;
+  userId?: string | null;  // For backward compatibility
   action: string;
-  entityType: string;
-  entityId: number | null;
-  details: string;
-  ipAddress: string | null;
-  userAgent: string | null;
-  createdAt: string;
+  resource_type: string | null;
+  entityType?: string | null;  // For backward compatibility
+  resource_id: string | null;
+  entityId?: string | null;  // For backward compatibility
+  details: string | object;
+  ip_address: string | null;
+  ipAddress?: string | null;  // For backward compatibility
+  user_agent: string | null;
+  userAgent?: string | null;  // For backward compatibility
   created_at: string;
-  User?: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    role: string;
-  };
-  user?: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    role: string;
-  };
+  createdAt?: string;  // For backward compatibility
+  // User information is returned at root level from the JOIN
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  role?: string;
 }
 
 const actionColors = {
@@ -77,7 +75,7 @@ export default function AuditPage() {
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterEntity, setFilterEntity] = useState<string>("all");
 
-  const { data: auditLogs = [], isLoading, error } = useQuery({
+  const { data: auditLogs = [], isLoading, error } = useQuery<AuditLog[]>({
     queryKey: ['/api/audit-logs'],
     enabled: user?.role === 'main_admin' || user?.role === 'super_admin',
     refetchInterval: 30000,
@@ -107,16 +105,16 @@ export default function AuditPage() {
   }
 
   const filteredLogs = auditLogs.filter((log: AuditLog) => {
-    const userInfo = log.User || log.user;
+    const entityType = log.resource_type || log.entityType || '';
     const matchesSearch = 
       log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.entityType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (userInfo?.firstName && userInfo.firstName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (userInfo?.lastName && userInfo.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (userInfo?.email && userInfo.email.toLowerCase().includes(searchTerm.toLowerCase()));
+      entityType.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (log.firstName && log.firstName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (log.lastName && log.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (log.email && log.email.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesAction = filterAction === "all" || log.action === filterAction;
-    const matchesEntity = filterEntity === "all" || log.entityType === filterEntity;
+    const matchesEntity = filterEntity === "all" || entityType === filterEntity;
 
     return matchesSearch && matchesAction && matchesEntity;
   });
@@ -125,17 +123,19 @@ export default function AuditPage() {
     const csv = [
       ['Date', 'User', 'Action', 'Entity Type', 'Entity ID', 'IP Address', 'Details'],
       ...filteredLogs.map((log: AuditLog) => {
-        const userInfo = log.User || log.user;
         const timestamp = log.createdAt || log.created_at;
+        const entityType = log.resource_type || log.entityType || '';
+        const entityId = log.resource_id || log.entityId || '';
+        const ipAddress = log.ip_address || log.ipAddress || '';
         return [
           timestamp ? format(new Date(timestamp), 'yyyy-MM-dd HH:mm:ss') : '',
-          userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : 
-            (log.userId === null ? 'Anonymous Citizen' : 'Unknown'),
+          log.firstName && log.lastName ? `${log.firstName} ${log.lastName}` : 
+            ((log.user_id === null || log.userId === null) ? 'Anonymous Citizen' : 'Unknown'),
           log.action,
-          log.entityType,
-          log.entityId?.toString() || '',
-          log.ipAddress || '',
-          log.details || ''
+          entityType,
+          entityId?.toString() || '',
+          ipAddress,
+          typeof log.details === 'string' ? log.details : JSON.stringify(log.details) || ''
         ];
       })
     ].map(row => row.join(',')).join('\n');
@@ -277,10 +277,8 @@ export default function AuditPage() {
                       </TableCell>
                       <TableCell>
                         {(() => {
-                          const userInfo = log.User || log.user;
-                          
                           // Check if this is an anonymous citizen activity
-                          if (!userInfo && log.userId === null) {
+                          if ((log.user_id === null || log.userId === null) && (!log.firstName && !log.lastName)) {
                             return (
                               <div>
                                 <div className="font-medium text-orange-600">Anonymous Citizen</div>
@@ -289,12 +287,12 @@ export default function AuditPage() {
                             );
                           }
                           
-                          return userInfo ? (
+                          return (log.firstName && log.lastName) ? (
                             <div>
                               <div className="font-medium">
-                                {userInfo.firstName} {userInfo.lastName}
+                                {log.firstName} {log.lastName}
                               </div>
-                              <div className="text-sm text-gray-500 dark:text-gray-400">{userInfo.email}</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">{log.email || '-'}</div>
                             </div>
                           ) : (
                             <span className="text-gray-400">Unknown</span>
@@ -309,35 +307,69 @@ export default function AuditPage() {
                           {log.action}
                         </Badge>
                       </TableCell>
-                      <TableCell className="capitalize">{log.entityType}</TableCell>
-                      <TableCell>{log.entityId || '-'}</TableCell>
+                      <TableCell className="capitalize">{log.resource_type || log.entityType || '-'}</TableCell>
+                      <TableCell>{log.resource_id || log.entityId || '-'}</TableCell>
                       <TableCell className="font-mono text-sm">
-                        {log.ipAddress || '-'}
+                        {log.ip_address || log.ipAddress || '-'}
                       </TableCell>
                       <TableCell>
                         <div className="max-w-xs text-sm">
                           {(() => {
                             try {
-                              const details = JSON.parse(log.details || '{}');
-                              if (log.action === 'login') {
-                                return `Logged in as ${details.role}`;
-                              } else if (log.action === 'view' && log.entityType === 'analytics') {
-                                return `Viewed ${details.timeframe} analytics (${details.totalIncidents} incidents)`;
-                              } else if (log.action === 'create') {
-                                return `Created new ${log.entityType}`;
-                              } else if (log.action === 'update') {
-                                return `Updated ${log.entityType} #${log.entityId}`;
-                              } else if (log.action === 'delete') {
-                                return `Deleted ${log.entityType} #${log.entityId}`;
-                              } else if (log.action === 'invite') {
-                                return `Invited user to ${log.entityType}`;
-                              } else if (log.action === 'assign') {
-                                return `Assigned ${log.entityType} #${log.entityId}`;
+                              // Handle cases where details might already be an object or a JSON string
+                              let details;
+                              if (typeof log.details === 'string') {
+                                try {
+                                  details = JSON.parse(log.details);
+                                } catch {
+                                  return log.details || '-';
+                                }
+                              } else if (typeof log.details === 'object' && log.details !== null) {
+                                details = log.details;
                               } else {
-                                return `${log.action} ${log.entityType}`;
+                                return (log.details as any)?.toString() || '-';
                               }
-                            } catch {
-                              return log.details || '-';
+
+                              // Handle specific action types
+                              if (log.action === 'login') {
+                                return `Logged in as ${details.role || details.userType || 'user'}`;
+                              } else if (log.action === 'view' && log.entityType === 'analytics') {
+                                return `Viewed ${details.timeframe || 'unknown'} analytics (${details.totalIncidents || 0} incidents)`;
+                              } else if (log.action === 'create') {
+                                return `Created new ${log.resource_type || log.entityType || 'resource'}`;
+                              } else if (log.action === 'update') {
+                                return `Updated ${log.resource_type || log.entityType || 'resource'} #${log.resource_id || log.entityId || 'unknown'}`;
+                              } else if (log.action === 'delete') {
+                                return `Deleted ${log.resource_type || log.entityType || 'resource'} #${log.resource_id || log.entityId || 'unknown'}`;
+                              } else if (log.action === 'invite') {
+                                return `Invited user to ${log.resource_type || log.entityType || 'organization'}`;
+                              } else if (log.action === 'assign') {
+                                return `Assigned ${log.resource_type || log.entityType || 'resource'} #${log.resource_id || log.entityId || 'unknown'}`;
+                              } else if (log.action === 'view_public_incidents') {
+                                return 'Viewed public incidents from mobile app';
+                              } else if (log.action === 'citizen_report') {
+                                return 'Submitted incident report from mobile app';
+                              } else if (log.action === 'citizen_upvote') {
+                                return 'Upvoted incident from mobile app';
+                              } else if (log.action === 'emergency_alert') {
+                                return 'Sent emergency alert';
+                              } else if (log.action === 'emergency_notification') {
+                                return `Sent emergency notification: ${details.title || 'Unnamed Alert'}`;
+                              } else if (log.action === 'analytics_access') {
+                                return `Accessed analytics: ${details.method || log.action} ${details.url || ''}`;
+                              } else if (details.method && details.url) {
+                                // Generic API call details
+                                return `API ${details.method?.toUpperCase() || 'REQUEST'} ${details.url} (${details.statusCode || 'unknown'})`;
+                              } else {
+                                // Fallback to generic description
+                                const entityType = log.resource_type || log.entityType || 'resource';
+                                const entityId = log.resource_id || log.entityId;
+                                return `${log.action} ${entityType}${entityId ? ` #${entityId}` : ''}`;
+                              }
+                            } catch (error) {
+                              // Safe fallback that ensures we never return an object
+                              console.warn('Error parsing audit log details:', error);
+                              return typeof log.details === 'string' ? log.details : JSON.stringify(log.details) || '-';
                             }
                           })()}
                         </div>

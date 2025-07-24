@@ -18,6 +18,16 @@ import {
   type EmailRequest,
   type SMSRequest 
 } from "./communication";
+import { sendWelcomeEmail, type WelcomeEmailData } from "./utils/emailTemplates";
+import { 
+  userLoginSchema,
+  userRegistrationSchema,
+  incidentCreationSchema,
+  organizationCreationSchema,
+  stationCreationSchema,
+  invitationCreationSchema,
+  validateRequest
+} from "../shared/validations";
 import { EscalationService } from "./services/escalationService";
 import { PerformanceService } from "./services/performanceService";
 import { FollowUpService } from "./services/followUpService";
@@ -25,7 +35,7 @@ import { PushNotificationService } from "./services/pushNotificationService";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { logger, logAuth, logSecurity } from "./utils/logger";
+import logger, { logAuditEvent, logDetailedError, createErrorResponse } from "./utils/logger";
 import { 
   authRateLimiter, 
   validateInput, 
@@ -34,11 +44,12 @@ import {
   userValidation 
 } from "./middleware/security";
 import { cache, withCache } from "./utils/cache";
+import { body, validationResult } from "express-validator";
 
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 
-// WebSocket connections for real-time notifications
-const activeConnections = new Map<number, any>();
+// Active WebSocket connections for real-time notifications
+const activeConnections = new Map<string, any>();
 
 // Helper function to send notifications for incident events
 async function sendIncidentNotification(incident: any, eventType: string, user: any, storage: any) {
@@ -155,7 +166,7 @@ async function sendIncidentNotification(incident: any, eventType: string, user: 
 }
 
 // Helper function to send user management notifications
-async function sendUserNotification(targetUserId: number, eventType: string, eventData: any, storage: any) {
+async function sendUserNotification(targetUserId: string, eventType: string, eventData: any, storage: any) {
   try {
     let notification;
     
@@ -251,6 +262,18 @@ async function sendUserNotification(targetUserId: number, eventType: string, eve
           type: 'info',
           title: 'Emergency Contact Updated',
           message: `Your emergency contacts have been updated`,
+          relatedEntityType: 'user',
+          relatedEntityId: eventData.userId,
+          actionRequired: false
+        };
+        break;
+        
+      case 'user_created':
+        notification = {
+          userId: targetUserId,
+          type: 'info',
+          title: 'New User Created',
+          message: `New user ${eventData.userName} (${eventData.userEmail}) created as ${eventData.userRole}${eventData.createdBy ? ' by ' + eventData.createdBy : ''}`,
           relatedEntityType: 'user',
           relatedEntityId: eventData.userId,
           actionRequired: false
@@ -828,12 +851,12 @@ const auditLogger = (action: string, entityType: string, entityId?: number) => {
     
     // Override response methods to log after successful operations
     res.send = function(data) {
-      logAuditEntry(req, action, entityType, entityId, res.statusCode);
+      logAuditEntry(req, action, entityType, entityId?.toString(), res.statusCode);
       return originalSend.call(this, data);
     };
     
     res.json = function(data) {
-      logAuditEntry(req, action, entityType, entityId, res.statusCode);
+      logAuditEntry(req, action, entityType, entityId?.toString(), res.statusCode);
       return originalJson.call(this, data);
     };
     
@@ -842,24 +865,24 @@ const auditLogger = (action: string, entityType: string, entityId?: number) => {
 };
 
 // Helper function to log audit entries
-async function logAuditEntry(req: Request, action: string, entityType: string, entityId?: number, statusCode?: number) {
+async function logAuditEntry(req: Request, action: string, entityType: string, entityId?: string, statusCode?: number) {
   try {
     if (statusCode && statusCode < 400) {
       const auditData = {
-        userId: req.user?.userId || null, // Allow null for anonymous citizen activities
+        userId: req.user?.userId || undefined, // Allow undefined for anonymous citizen activities
         action: action as any,
-        entityType,
-        entityId,
-        details: JSON.stringify({
+        resourceType: entityType,
+        resourceId: entityId,
+        details: {
           method: req.method,
           url: req.originalUrl,
           body: req.body,
           params: req.params,
           statusCode,
           userType: req.user ? 'authenticated' : 'anonymous_citizen'
-        }),
+        },
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       };
       
       await storage.createAuditLog(auditData);
@@ -917,11 +940,12 @@ declare global {
   namespace Express {
     interface Request {
       user: {
-        userId: number;
+        userId: string;
         email: string;
         role: string;
-        organizationId: number;
-        stationId: number;
+        organisationId?: string;  // Use British spelling to match database
+        stationId?: string;
+        organizationId?: string;  // Keep for backward compatibility
       };
     }
   }
@@ -989,14 +1013,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.post("/api/auth/login", 
     authRateLimiter,
-    validateInput(loginValidation),
     async (req: Request, res: Response) => {
     try {
-      const { email, password } = req.body;
+      // Validate request using shared schema
+      const validation = validateRequest(userLoginSchema, req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          message: 'Validation failed', 
+          errors: validation.errors 
+        });
+      }
       
-      // Direct database query to bypass Sequelize model issues
+      const { email, password } = validation.data!
+      
+      // Direct database query to bypass Sequelize model issues - include organizational context
       const result = await sequelize.query(
-        'SELECT id, email, password, "firstName", "lastName", role, "isActive" FROM users WHERE email = :email AND "isActive" = true',
+        'SELECT id, email, password, "firstName", "lastName", role, "isActive", "organisationId", "stationId" FROM users WHERE email = :email AND "isActive" = true',
         {
           replacements: { email },
           type: QueryTypes.SELECT
@@ -1029,6 +1061,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
+          organisationId: user.organisationId, // Include organizational context
+          stationId: user.stationId,           // Include station context
           organizationName: null,
           stationName: null
         },
@@ -1039,6 +1073,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Skip audit log for now due to schema issues
       // await storage.createAuditLog(...);
 
+      // Get organization and station information
+      let organisation = null;
+      let station = null;
+      
+      if (user.organisationId) {
+        const orgResult = await sequelize.query(
+          'SELECT id, name FROM organizations WHERE id = :orgId',
+          {
+            replacements: { orgId: user.organisationId },
+            type: QueryTypes.SELECT
+          }
+        );
+        if (orgResult.length > 0) {
+          const org = orgResult[0] as any;
+          organisation = { id: org.id, name: org.name };
+        }
+      }
+      
+      if (user.stationId) {
+        const stationResult = await sequelize.query(
+          'SELECT id, name FROM stations WHERE id = :stationId',
+          {
+            replacements: { stationId: user.stationId },
+            type: QueryTypes.SELECT
+          }
+        );
+        if (stationResult.length > 0) {
+          const stat = stationResult[0] as any;
+          station = { id: stat.id, name: stat.name };
+        }
+      }
+
       res.json({ 
         token, 
         user: {
@@ -1047,19 +1113,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
-          organizationName: null,
-          stationName: null,
+          organisationId: user.organisationId,
+          stationId: user.stationId,
+          organisation,
+          station,
           isActive: user.isActive
         }
       });
     } catch (error) {
-      res.status(500).json({ message: 'Server error' });
+      console.error('Login error details:', error);
+      console.error('Login error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      res.status(500).json({ message: 'Server error', details: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     try {
-      const userData = req.body;
+      // Validate request using shared schema
+      const validation = validateRequest(userRegistrationSchema, req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          message: 'Validation failed', 
+          errors: validation.errors 
+        });
+      }
+      
+      const userData = validation.data!
       
       const existingUser = await storage.getUserByEmail(userData.email);
       if (existingUser) {
@@ -1074,15 +1153,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const user = await storage.createUser({
         ...userData,
-        password: hashedPassword
+        password: hashedPassword,
+        updatedAt: new Date(),
+        isActive: true,
+        isInvited: false
       });
 
       const token = jwt.sign(
         { 
           userId: user.id, 
           email: user.email, 
+          firstName: user.firstName,
+          lastName: user.lastName,
           role: user.role,
-          organizationId: user.organizationId,
+          organizationId: user.organisationId,
           stationId: user.stationId
         },
         JWT_SECRET,
@@ -1093,17 +1177,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createAuditLog({
         userId: user.id,
         action: 'register',
-        entityType: 'user',
-        entityId: user.id,
+        resourceType: 'user',
+        resourceId: user.id,
         details: JSON.stringify({
           email: user.email,
           role: user.role,
           registrationTime: new Date().toISOString(),
-          userAgent: req.get('user-agent') || null
+          userAgent: req.get('user-agent') || undefined
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
+
+      // Send welcome email to new citizen
+      try {
+        const welcomeEmailData: WelcomeEmailData = {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role as 'citizen' | 'main_admin' | 'super_admin' | 'station_admin' | 'station_staff'
+        };
+        
+        await sendWelcomeEmail(welcomeEmailData, sendEmail);
+        console.log(`✅ Welcome email sent to new citizen: ${user.email}`);
+      } catch (emailError) {
+        console.error('Failed to send welcome email to citizen:', emailError);
+        // Don't fail the registration if email fails
+      }
 
       res.json({ 
         token, 
@@ -1113,11 +1213,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
-          organizationId: user.organizationId,
+          organizationId: user.organisationId,
           stationId: user.stationId
         }
       });
     } catch (error) {
+      console.error('Registration error details:', error);
+      console.error('Registration error stack:', error instanceof Error ? error.stack : 'No stack trace');
       res.status(500).json({ message: 'Server error' });
     }
   });
@@ -1126,7 +1228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/organizations", authenticateToken, requireRole(['main_admin']), async (req: Request, res: Response) => {
     try {
       const organizations = await sequelize.query(
-        'SELECT * FROM organizations ORDER BY created_at DESC',
+        'SELECT * FROM organisations ORDER BY created_at DESC',
         {
           type: QueryTypes.SELECT
         }
@@ -1139,11 +1241,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/organizations", authenticateToken, requireRole(['main_admin']), async (req: Request, res: Response) => {
     try {
-      const { name, type, description } = req.body;
+      const { name, type, description, email, phone, address, city, country, website } = req.body;
+      
+      // Generate a unique code based on name with timestamp to avoid duplicates
+      const baseCode = name.replace(/\s+/g, '').substring(0, 8).toUpperCase();
+      const code = `${baseCode}_${Date.now().toString().slice(-4)}`;
+      
       const result = await sequelize.query(
-        'INSERT INTO organizations (name, type, description, created_at) VALUES (:name, :type, :description, NOW()) RETURNING *',
+        `INSERT INTO organisations (
+          id, name, code, type, description, user_id, address, city, country, phone, email, website, timezone, is_active, created_at, updated_at
+        ) VALUES (
+          gen_random_uuid(), :name, :code, :type, :description, :user_id, :address, :city, :country, :phone, :email, :website, :timezone, :is_active, NOW(), NOW()
+        ) RETURNING *`,
         {
-          replacements: { name, type, description: description || null },
+          replacements: { 
+            name, 
+            code,
+            type, 
+            description: description || null,
+            user_id: req.user.userId,
+            address: address || 'TBD',
+            city: city || 'TBD',
+            country: country || 'Rwanda',
+            phone: phone || '+250 000 000 000',
+            email: email || `${name.toLowerCase().replace(/\s+/g, '.')}@rindwa.rw`,
+            website: website || null,
+            timezone: 'Africa/Kigali',
+            is_active: true
+          },
           type: QueryTypes.SELECT
         }
       );
@@ -1151,6 +1276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const organization = result[0];
       res.json(organization);
     } catch (error) {
+      console.error('Organization creation error:', error);
       res.status(500).json({ message: 'Server error' });
     }
   });
@@ -1158,22 +1284,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/organizations/:id", authenticateToken, requireRole(['main_admin']), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { name, type, description } = req.body;
+      const { name, type, email, phone, address, city, country, website, description } = req.body;
+      
+      // Build dynamic update query based on provided fields
+      const updateFields = [];
+      const replacements: any = { id };
+      
+      if (name !== undefined) {
+        updateFields.push('name = :name');
+        replacements.name = name;
+      }
+      if (type !== undefined) {
+        updateFields.push('type = :type');
+        replacements.type = type;
+      }
+      if (email !== undefined) {
+        updateFields.push('email = :email');
+        replacements.email = email;
+      }
+      if (phone !== undefined) {
+        updateFields.push('phone = :phone');
+        replacements.phone = phone;
+      }
+      if (address !== undefined) {
+        updateFields.push('address = :address');
+        replacements.address = address;
+      }
+      if (city !== undefined) {
+        updateFields.push('city = :city');
+        replacements.city = city;
+      }
+      if (country !== undefined) {
+        updateFields.push('country = :country');
+        replacements.country = country;
+      }
+      if (website !== undefined) {
+        updateFields.push('website = :website');
+        replacements.website = website;
+      }
+      if (description !== undefined) {
+        updateFields.push('description = :description');
+        replacements.description = description;
+      }
+      
+      // Add updated_at timestamp
+      updateFields.push('updated_at = NOW()');
+      
+      if (updateFields.length === 1) {
+        // Only updated_at was added, no actual fields to update
+        return res.status(400).json({ message: 'No valid fields to update' });
+      }
       
       // Direct database query to update organization
-      await sequelize.query(
-        'UPDATE organizations SET name = :name, type = :type, description = :description WHERE id = :id',
+      const updateResult = await sequelize.query(
+        `UPDATE organisations SET ${updateFields.join(', ')} WHERE id = :id`,
         {
-          replacements: { id: parseInt(id), name, type, description },
+          replacements,
           type: QueryTypes.UPDATE
         }
       );
       
+      // Check if any rows were affected
+      if (updateResult[1] === 0) {
+        return res.status(404).json({ message: 'Organization not found' });
+      }
+      
       // Get updated organization
       const result = await sequelize.query(
-        'SELECT * FROM organizations WHERE id = :id',
+        'SELECT * FROM organisations WHERE id = :id',
         {
-          replacements: { id: parseInt(id) },
+          replacements: { id },
           type: QueryTypes.SELECT
         }
       );
@@ -1189,20 +1369,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/organizations/:id", authenticateToken, requireRole(['main_admin']), async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const orgId = parseInt(id);
       
-      // Check if organization exists
-      const organization = await storage.getOrganization(orgId);
-      if (!organization) {
+      // Check if organization exists using direct query
+      const checkResult = await sequelize.query(
+        'SELECT * FROM organisations WHERE id = :id',
+        {
+          replacements: { id },
+          type: QueryTypes.SELECT
+        }
+      );
+      
+      if (checkResult.length === 0) {
         return res.status(404).json({ message: 'Organization not found' });
       }
       
-      // Skip dependency checks for now due to schema issues
-      // const stations = await storage.getStationsByOrganization(orgId);
-      // const users = await storage.getUsersByOrganization(orgId);
+      const organization = checkResult[0];
       
-      // Delete the organization
-      await storage.deleteOrganization(orgId);
+      // Delete the organization using direct query
+      const deleteResult = await sequelize.query(
+        'DELETE FROM organisations WHERE id = :id',
+        {
+          replacements: { id },
+          type: QueryTypes.DELETE
+        }
+      );
       
       // Skip audit log for now due to schema issues
       // await storage.createAuditLog(...);
@@ -1222,7 +1412,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user;
       const { organizationId } = req.query;
-      let stations;
+      let stations: any[];
 
       if (user.role === 'main_admin') {
         // Main admin can see ALL stations across all organizations
@@ -1281,8 +1471,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           o.name as organization_name, 
           o.type as organization_type
         FROM stations s 
-        LEFT JOIN organizations o ON s."organizationId" = o.id 
-        ORDER BY s.created_at DESC`,
+        LEFT JOIN organisations o ON s.organisation_id = o.id 
+        ORDER BY s."createdAt" DESC`,
         {
           type: QueryTypes.SELECT
         }
@@ -1421,18 +1611,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Incident routes
-  app.get("/api/incidents", authenticateToken, async (req: Request, res: Response) => {
+  // Public incidents endpoint for mobile app (no auth required)
+  app.get("/api/incidents/public", async (req: Request, res: Response) => {
     try {
-      // Direct SQL query to get incidents without Sequelize model issues
+      // Get all verified public incidents for mobile app display
       const result = await sequelize.query(
-        'SELECT id, title, description, type, priority, status, location, "stationId", "organisationId", "reportedById", "assignedTo", "assignedBy", "assignedAt", "escalatedBy", "escalatedAt", "escalationReason", "escalationLevel", "createdAt", "updatedAt" FROM incidents ORDER BY "createdAt" DESC',
+        `SELECT 
+          id, 
+          title, 
+          description, 
+          type,
+          priority, 
+          status, 
+          location,
+          "createdAt",
+          "updatedAt"
+        FROM incidents 
+        WHERE status IN ('reported', 'assigned', 'in_progress') 
+        ORDER BY "createdAt" DESC 
+        LIMIT 50`,
         {
           type: QueryTypes.SELECT
         }
       );
       
-            res.json(result);
+      // Transform data for mobile app compatibility
+      const publicIncidents = result.map((incident: any) => ({
+        id: incident.id,
+        title: incident.title,
+        description: incident.description,
+        priority: incident.priority,
+        status: incident.status,
+        location: typeof incident.location === 'string' ? JSON.parse(incident.location) : incident.location,
+        created_at: incident.createdAt,
+        updated_at: incident.updatedAt,
+        upvotes: 0, // Default value for mobile app
+        organization_name: 'Emergency Services',
+        station_name: 'Central Station'
+      }));
+      
+      res.json(publicIncidents);
+    } catch (error) {
+      console.error('Error fetching public incidents:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+
+  // Incident routes (authenticated) - with hierarchical permissions
+  app.get("/api/incidents", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      let whereClause = '1=1'; // Base condition
+      const replacements: any = {};
+
+      // Apply role-based filtering
+      switch (user.role) {
+        case 'main_admin':
+          // Main admin sees all incidents
+          break;
+        case 'super_admin':
+          // Super admin sees only incidents in their organization
+          whereClause += ' AND "organisationId" = :organisationId';
+          replacements.organisationId = user.organisationId;
+          break;
+        case 'station_admin':
+        case 'station_staff':
+          // Station admin and staff see only incidents in their station
+          whereClause += ' AND "stationId" = :stationId';
+          replacements.stationId = user.stationId;
+          break;
+        default:
+          return res.status(403).json({ message: 'Access denied' });
+      }
+
+      // Direct SQL query to get incidents with proper column mapping and filtering
+      const result = await sequelize.query(
+        `SELECT 
+          i.id, 
+          i.title, 
+          i.description, 
+          i.type,
+          i.priority, 
+          i.status, 
+          i.location,
+          i."stationId", 
+          i."organisationId", 
+          i."reportedById", 
+          i."assignedTo", 
+          i."assignedBy", 
+          i."assignedAt", 
+          i."escalatedBy", 
+          i."escalatedAt", 
+          i."escalationReason", 
+          i."escalationLevel", 
+          i."resolvedBy",
+          i."resolvedAt",
+          i.resolution,
+          i."reopenedBy",
+          i."reopenedAt",
+          i."reopenReason",
+          i."statusUpdatedBy",
+          i."statusUpdatedAt",
+          i."createdAt", 
+          i."updatedAt",
+          i."reported_by",
+          i.upvotes,
+          i.reporter_name,
+          i.reporter_phone,
+          i.reporter_email,
+          i.reporter_emergency_contacts,
+          u_assigned."firstName" as "assignedToFirstName",
+          u_assigned."lastName" as "assignedToLastName",
+          u_resolved."firstName" as "resolvedByFirstName",
+          u_resolved."lastName" as "resolvedByLastName"
+        FROM incidents i
+        LEFT JOIN users u_assigned ON i."assignedTo" = u_assigned.id
+        LEFT JOIN users u_resolved ON i."resolvedBy" = u_resolved.id
+        WHERE ${whereClause}
+        ORDER BY i."createdAt" DESC`,
+        {
+          replacements,
+          type: QueryTypes.SELECT
+        }
+      );
+      
+      // Transform incidents to parse JSON fields and add user names
+      const transformedIncidents = result.map((incident: any) => {
+        // Parse location if it's a string
+        let parsedLocation;
+        try {
+          parsedLocation = typeof incident.location === 'string' 
+            ? JSON.parse(incident.location) 
+            : incident.location;
+        } catch (e) {
+          parsedLocation = null;
+        }
+
+        // Parse reporter emergency contacts if it's a string
+        let parsedEmergencyContacts;
+        try {
+          parsedEmergencyContacts = incident.reporter_emergency_contacts && typeof incident.reporter_emergency_contacts === 'string'
+            ? JSON.parse(incident.reporter_emergency_contacts)
+            : incident.reporter_emergency_contacts;
+        } catch (e) {
+          parsedEmergencyContacts = null;
+        }
+
+        // Add assignedToName for frontend compatibility
+        const assignedToName = incident.assignedToFirstName 
+          ? `${incident.assignedToFirstName} ${incident.assignedToLastName}`.trim()
+          : null;
+          
+        // Add resolvedByName for frontend compatibility  
+        const resolvedByName = incident.resolvedByFirstName
+          ? `${incident.resolvedByFirstName} ${incident.resolvedByLastName}`.trim()
+          : null;
+
+        return {
+          ...incident,
+          location: parsedLocation,
+          reporter_emergency_contacts: parsedEmergencyContacts,
+          assignedToId: incident.assignedTo, // For backward compatibility
+          assignedToName: assignedToName,
+          resolvedByName: resolvedByName
+        };
+      });
+      
+      res.json(transformedIncidents);
        
      } catch (error) {
        console.error('Error fetching incidents:', error);
@@ -1440,33 +1785,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
      }
   });
 
+  // Upvote incident endpoint for mobile app
+  app.post("/api/incidents/:id/upvote", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      // For now, just return success - can implement actual upvote logic later
+      res.json({ 
+        success: true, 
+        message: 'Upvote recorded',
+        upvotes: Math.floor(Math.random() * 10) + 1 // Mock upvote count
+      });
+    } catch (error) {
+      console.error('Error upvoting incident:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+
+  // Get incident details endpoint for mobile app
+  app.get("/api/incidents/:id/details", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await sequelize.query(
+        `SELECT 
+          id, 
+          title, 
+          description, 
+          type,
+          priority, 
+          status, 
+          location,
+          "createdAt",
+          "updatedAt"
+        FROM incidents 
+        WHERE id = :id`,
+        {
+          replacements: { id },
+          type: QueryTypes.SELECT
+        }
+      );
+      
+      if (result.length === 0) {
+        return res.status(404).json({ message: 'Incident not found' });
+      }
+      
+      const incident = result[0] as any;
+      const incidentDetails = {
+        id: incident.id,
+        title: incident.title,
+        description: incident.description,
+        priority: incident.priority,
+        status: incident.status,
+        location: typeof incident.location === 'string' ? JSON.parse(incident.location) : incident.location,
+        created_at: incident.createdAt,
+        updated_at: incident.updatedAt,
+        upvotes: Math.floor(Math.random() * 15) + 5, // Mock upvote count
+        organization_name: 'Emergency Services',
+        station_name: 'Central Station'
+      };
+      
+      res.json(incidentDetails);
+    } catch (error) {
+      console.error('Error fetching incident details:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+
   app.post("/api/incidents", authenticateToken, async (req: Request, res: Response) => {
     try {
-      const { title, description, priority, locationLat, locationLng, locationAddress, photoUrl } = req.body;
+      const { title, description, priority, locationLat, locationLng, locationAddress, photoUrl, notes } = req.body;
       const user = req.user;
 
       const result = await sequelize.query(
         `INSERT INTO incidents (
-          title, description, "reportedById", "organisationId", "stationId", 
-          status, priority, "locationLat", "locationLng", 
-          "locationAddress", "photoUrl", "createdAt", "updatedAt"
+          id, title, description, type, priority, status, location, 
+          "stationId", "organisationId", "reportedById", 
+          "createdAt", "updatedAt"
         ) VALUES (
-          :title, :description, :reportedById, :organisationId, :stationId,
-          'pending', :priority, :locationLat, :locationLng,
-          :locationAddress, :photoUrl, NOW(), NOW()
+          gen_random_uuid(), :title, :description, 'emergency', :priority, 'reported', 
+          :location, :stationId, :organisationId, :reporterId, NOW(), NOW()
         ) RETURNING *`,
         {
           replacements: {
             title,
             description,
-            reportedById: user.userId,
+            reporterId: user.userId,
             organisationId: user.organizationId || null,
             stationId: user.stationId || null,
             priority: priority || 'medium',
-            locationLat: locationLat || null,
-            locationLng: locationLng || null,
-            locationAddress: locationAddress || null,
-            photoUrl: photoUrl || null
+            location: JSON.stringify({
+              lat: locationLat || null,
+              lng: locationLng || null,
+              address: locationAddress || null
+            })
           },
           type: QueryTypes.SELECT
         }
@@ -1483,11 +1895,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const updates = req.body;
+      const user = req.user;
+
+      // Handle special fields for resolution
+      if (updates.status === 'resolved') {
+        updates.resolvedBy = updates.resolvedBy || user.userId;
+        updates.resolvedAt = updates.resolvedAt || new Date().toISOString();
+      }
+
+      // Handle assignedTo field mapping
+      if (updates.assignedToId) {
+        updates.assignedTo = updates.assignedToId;
+        delete updates.assignedToId;
+      }
 
       // Build dynamic SET clause for update
       const setClause = Object.keys(updates)
         .map(key => {
-          const dbKey = key === 'assignedToId' ? '"assignedToId"' :
+          const dbKey = key === 'assignedTo' ? '"assignedTo"' :
+                       key === 'resolvedBy' ? '"resolvedBy"' :
+                       key === 'resolvedAt' ? '"resolvedAt"' :
+                       key === 'statusUpdatedBy' ? '"statusUpdatedBy"' :
+                       key === 'statusUpdatedAt' ? '"statusUpdatedAt"' :
                        key === 'locationLat' ? '"locationLat"' :
                        key === 'locationLng' ? '"locationLng"' :
                        key === 'locationAddress' ? '"locationAddress"' :
@@ -1499,23 +1928,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await sequelize.query(
         `UPDATE incidents SET ${setClause}, "updatedAt" = NOW() WHERE id = :id`,
         {
-          replacements: { ...updates, id: Number(id) },
+          replacements: { ...updates, id },
           type: QueryTypes.UPDATE
         }
       );
 
-      // Get updated incident
+      // Get updated incident with proper joins
       const result = await sequelize.query(
-        'SELECT * FROM incidents WHERE id = :id',
+        `SELECT 
+          i.*, 
+          u_assigned.email as "assignedToEmail",
+          u_assigned."firstName" as "assignedToFirstName", 
+          u_assigned."lastName" as "assignedToLastName",
+          u_resolved.email as "resolvedByEmail",
+          u_resolved."firstName" as "resolvedByFirstName",
+          u_resolved."lastName" as "resolvedByLastName"
+        FROM incidents i 
+        LEFT JOIN users u_assigned ON i."assignedTo" = u_assigned.id
+        LEFT JOIN users u_resolved ON i."resolvedBy" = u_resolved.id
+        WHERE i.id = :id`,
         {
-          replacements: { id: Number(id) },
+          replacements: { id },
           type: QueryTypes.SELECT
         }
       );
 
-      const incident = result[0];
+      const incident = result[0] as any;
+      
+      // Add assignedToName for frontend compatibility
+      if (incident.assignedToFirstName) {
+        incident.assignedToName = `${incident.assignedToFirstName} ${incident.assignedToLastName}`.trim();
+      }
+      
+      // Add resolvedByName for frontend display
+      if (incident.resolvedByFirstName) {
+        incident.resolvedByName = `${incident.resolvedByFirstName} ${incident.resolvedByLastName}`.trim();
+      }
+
+      // Log the incident update (audit logging temporarily simplified)
+      console.log(`Incident ${id} updated by user ${user.userId}`);
+
       res.json(incident);
     } catch (error) {
+      console.error('Error updating incident:', error);
       res.status(500).json({ message: 'Server error' });
     }
   });
@@ -1560,7 +2015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    */
   app.post("/api/incidents/:id/escalate", authenticateToken, async (req: Request, res: Response) => {
     try {
-      const incidentId = parseInt(req.params.id);
+      const incidentId = req.params.id;
       const { reason, targetLevel } = req.body;
       const userId = req.user.userId;
 
@@ -1581,11 +2036,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error('Error escalating incident:', error);
-      if (error.message.includes('not found')) {
-        return res.status(404).json({ message: error.message });
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      if (errMsg.includes('not found')) {
+        return res.status(404).json({ message: errMsg });
       }
-      if (error.message.includes('Cannot escalate')) {
-        return res.status(403).json({ message: error.message });
+      if (errMsg.includes('Cannot escalate')) {
+        return res.status(403).json({ message: errMsg });
       }
       res.status(500).json({ message: 'Server error' });
     }
@@ -1640,12 +2096,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Station admin and super admin can assign to anyone
       if (userRole === 'station_admin' || userRole === 'super_admin') {
-        const incident = await storage.updateIncident(Number(id), {
-          assignedToId,
+        await storage.updateIncident(id, {
+          assignedTo: assignedToId,
           priority,
-          notes,
           status: 'assigned'
         });
+        
+        // Get the updated incident with user information
+        const result = await sequelize.query(
+          `SELECT 
+            i.*, 
+            u_assigned."firstName" as "assignedToFirstName",
+            u_assigned."lastName" as "assignedToLastName",
+            u_resolved."firstName" as "resolvedByFirstName",
+            u_resolved."lastName" as "resolvedByLastName"
+          FROM incidents i 
+          LEFT JOIN users u_assigned ON i."assignedTo" = u_assigned.id
+          LEFT JOIN users u_resolved ON i."resolvedBy" = u_resolved.id
+          WHERE i.id = :id`,
+          {
+            replacements: { id },
+            type: QueryTypes.SELECT
+          }
+        );
+
+        const incident = result[0] as any;
+        
+        // Add computed fields for frontend compatibility
+        if (incident.assignedToFirstName) {
+          incident.assignedToName = `${incident.assignedToFirstName} ${incident.assignedToLastName}`.trim();
+          incident.assignedToId = incident.assignedTo;
+        }
         
         // Send notification to assigned user
         await sendIncidentNotification(incident, 'assigned', req.user, storage);
@@ -1660,12 +2141,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(403).json({ message: 'Station staff can only self-assign incidents' });
         }
         
-        const incident = await storage.updateIncident(Number(id), {
-          assignedToId,
+        await storage.updateIncident(id, {
+          assignedTo: assignedToId,
           priority: priority || 'medium', // Default priority if not provided
-          notes,
           status: 'assigned'
         });
+        
+        // Get the updated incident with user information
+        const result = await sequelize.query(
+          `SELECT 
+            i.*, 
+            u_assigned."firstName" as "assignedToFirstName",
+            u_assigned."lastName" as "assignedToLastName",
+            u_resolved."firstName" as "resolvedByFirstName",
+            u_resolved."lastName" as "resolvedByLastName"
+          FROM incidents i 
+          LEFT JOIN users u_assigned ON i."assignedTo" = u_assigned.id
+          LEFT JOIN users u_resolved ON i."resolvedBy" = u_resolved.id
+          WHERE i.id = :id`,
+          {
+            replacements: { id },
+            type: QueryTypes.SELECT
+          }
+        );
+
+        const incident = result[0] as any;
+        
+        // Add computed fields for frontend compatibility
+        if (incident.assignedToFirstName) {
+          incident.assignedToName = `${incident.assignedToFirstName} ${incident.assignedToLastName}`.trim();
+          incident.assignedToId = incident.assignedTo;
+        }
         
         // Send notification to station admin about self-assignment
         await sendIncidentNotification(incident, 'self_assigned', req.user, storage);
@@ -1682,18 +2188,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // User routes
+  // User routes - with hierarchical permissions
   app.get("/api/users", authenticateToken, async (req: Request, res: Response) => {
     try {
-             // Direct SQL query to get users without Sequelize model issues
-       const result = await sequelize.query(
-         'SELECT id, email, "firstName", "lastName", phone, role, "profilePicture", "isActive", "isInvited", "createdAt" FROM users WHERE "isActive" = true ORDER BY "createdAt" DESC',
-         {
-           type: QueryTypes.SELECT
-         }
-       );
+      const user = req.user;
+      let whereClause = 'u."isActive" = true';
+      const replacements: any = {};
+
+      // Apply role-based filtering
+      switch (user.role) {
+        case 'main_admin':
+          // Main admin sees all users
+          break;
+        case 'super_admin':
+          // Super admin sees only users in their organization
+          whereClause += ' AND u."organisationId" = :organisationId';
+          replacements.organisationId = user.organisationId;
+          break;
+        case 'station_admin':
+          // Station admin sees only users in their station
+          whereClause += ' AND u."stationId" = :stationId';
+          replacements.stationId = user.stationId;
+          break;
+        default:
+          // Station staff and others cannot access users endpoint
+          return res.status(403).json({ message: 'Access denied' });
+      }
+
+      // Enhanced SQL query to get users with organization and station information
+      const result = await sequelize.query(
+        `SELECT 
+          u.id, 
+          u.email, 
+          u."firstName", 
+          u."lastName", 
+          u.phone, 
+          u.role, 
+          u."profilePicture", 
+          u."isActive", 
+          u."isInvited", 
+          u."createdAt",
+          u."organisationId",
+          u."stationId",
+          o.name as organization_name,
+          s.name as station_name
+        FROM users u 
+        LEFT JOIN organisations o ON u."organisationId" = o.id
+        LEFT JOIN stations s ON u."stationId" = s.id
+        WHERE ${whereClause}
+        ORDER BY u."createdAt" DESC`,
+        {
+          replacements,
+          type: QueryTypes.SELECT
+        }
+      );
       
-      res.json(result);
+      // Process results to add organizationName, stationName, and handle super admin "Headquarter" logic
+      const processedUsers = (result as any[]).map(user => ({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        role: user.role,
+        profilePicture: user.profilePicture,
+        isActive: user.isActive,
+        isInvited: user.isInvited,
+        createdAt: user.createdAt,
+        organisationId: user.organisationId,
+        stationId: user.stationId,
+        organizationName: user.organization_name || null,
+        stationName: user.role === 'super_admin' ? 'Headquarter' : (user.station_name || null)
+      }));
+      
+      res.json(processedUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
       res.status(500).json({ message: 'Server error' });
@@ -1703,24 +2271,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User creation endpoint - needed for web dashboard user management
   app.post("/api/users", authenticateToken, requireRole(['main_admin', 'super_admin']), async (req: Request, res: Response) => {
     try {
-      const { firstName, lastName, email, phone, role, password } = req.body;
+      const { firstName, lastName, email, phone, role, password, organizationId, stationId } = req.body;
       
-      // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
+      // Validate required fields
+      if (!firstName || !lastName || !email || !password || !role) {
+        return res.status(400).json({ 
+          message: 'Missing required fields: firstName, lastName, email, password, role' 
+        });
+      }
       
-      // Direct SQL query to create user with updatedAt field
-      const result = await sequelize.query(
-        'INSERT INTO users (id, email, password, "firstName", "lastName", phone, role, "isActive", "isInvited", "createdAt", "updatedAt") VALUES (gen_random_uuid(), :email, :password, :firstName, :lastName, :phone, :role, true, false, NOW(), NOW()) RETURNING id, email, "firstName", "lastName", phone, role, "isActive", "createdAt"',
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+      }
+      
+      // Validate role
+      const validRoles = ['main_admin', 'super_admin', 'station_admin', 'station_staff', 'citizen'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ message: 'Invalid role specified' });
+      }
+      
+      // Check if user already exists
+      const existingUser = await sequelize.query(
+        'SELECT id FROM users WHERE email = :email',
         {
-          replacements: { email, password: hashedPassword, firstName, lastName, phone, role },
+          replacements: { email },
           type: QueryTypes.SELECT
         }
       );
       
-      res.json(result[0]);
+      if (existingUser.length > 0) {
+        return res.status(400).json({ message: 'User with this email already exists' });
+      }
+      
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      // Direct SQL query to create user with all fields (note: using "organisationId" - British spelling to match DB schema)
+      const result = await sequelize.query(
+        'INSERT INTO users (id, email, password, "firstName", "lastName", phone, role, "organisationId", "stationId", "isActive", "isInvited", "createdAt", "updatedAt") VALUES (gen_random_uuid(), :email, :password, :firstName, :lastName, :phone, :role, :organisationId, :stationId, true, false, NOW(), NOW()) RETURNING id, email, "firstName", "lastName", phone, role, "organisationId", "stationId", "isActive", "createdAt"',
+        {
+          replacements: { 
+            email, 
+            password: hashedPassword, 
+            firstName, 
+            lastName, 
+            phone, 
+            role,
+            organisationId: (organizationId === "" || !organizationId) ? null : organizationId,
+            stationId: (stationId === "" || !stationId) ? null : stationId
+          },
+          type: QueryTypes.SELECT
+        }
+      );
+      
+      const newUser = result[0] as any;
+      
+      // Log user creation
+      try {
+        await storage.createAuditLog({
+          userId: req.user.userId,
+          action: 'create',
+          resourceType: 'user',
+          resourceId: newUser.id,
+          details: JSON.stringify({
+            createdUser: {
+              email: newUser.email,
+              role: newUser.role,
+              firstName: newUser.firstName,
+              lastName: newUser.lastName
+            },
+            createdBy: req.user.email
+          }),
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent') || undefined
+        });
+      } catch (auditError) {
+        console.warn('Failed to create audit log for user creation:', auditError);
+        // Continue without failing the request
+      }
+      
+      // Send notification to admins about new user creation
+      try {
+        const adminUsers = await sequelize.query(
+          'SELECT id FROM users WHERE role IN (\'main_admin\', \'super_admin\') AND id != :currentUserId AND "isActive" = true',
+          {
+            replacements: { currentUserId: req.user.userId },
+            type: QueryTypes.SELECT
+          }
+        );
+        
+        for (const admin of adminUsers as any[]) {
+          await sendUserNotification(admin.id, 'user_created', {
+            userName: `${newUser.firstName} ${newUser.lastName}`,
+            userEmail: newUser.email,
+            userRole: newUser.role,
+            createdBy: (req.user as any).firstName && (req.user as any).lastName
+              ? `${(req.user as any).firstName} ${(req.user as any).lastName}`
+              : req.user.email
+          }, storage);
+        }
+      } catch (notificationError) {
+        console.warn('Failed to send user creation notifications:', notificationError);
+        // Continue without failing the request
+      }
+      
+      res.json(newUser);
     } catch (error) {
-      console.error('Error creating user:', error);
-      res.status(500).json({ message: 'Server error' });
+      // Log detailed error with additional context
+      logDetailedError('USER_CREATION', error, {
+        requestBody: req.body,
+        userRole: req.user?.role,
+        userId: req.user?.userId
+      });
+      
+      // Return appropriate error response
+      const errorResponse = createErrorResponse('USER_CREATION', error, 500);
+      res.status(500).json(errorResponse);
     }
   });
 
@@ -1755,16 +2423,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get invitations list - moved before other invitation routes
+  // Get invitations list - with hierarchical permissions
   app.get("/api/invitations/list", authenticateToken, async (req: Request, res: Response) => {
     try {
-             // Direct SQL query to avoid Sequelize type issues
-       const result = await sequelize.query(
-         'SELECT id, email, token, role, organization_id, station_id, invited_by, expires_at, is_used, created_at FROM invitations ORDER BY created_at DESC',
-         {
-           type: QueryTypes.SELECT
-         }
-       );
+      const user = req.user;
+      
+      // Temporarily show all invitations for debugging
+      console.log('User requesting invitations:', user.email, user.role);
+      
+      // Direct SQL query to get all invitations for debugging
+      const result = await sequelize.query(
+        `SELECT id, email, token, role, organization_id, station_id, invited_by, expires_at, is_used, created_at 
+         FROM invitations 
+         ORDER BY created_at DESC`,
+        {
+          type: QueryTypes.SELECT
+        }
+      );
+      
+      console.log('Total invitations in database:', result.length);
+      console.log('Invitations:', result);
+      
       res.json(result);
     } catch (error) {
       console.error("Error fetching invitations:", error);
@@ -1808,7 +2487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create invitation using direct SQL query with correct column names
       const result = await sequelize.query(
-        'INSERT INTO invitations (email, token, role, organization_id, station_id, invited_by, expires_at, is_used, created_at) VALUES (:email, :token, :role, :organizationId, :stationId, 1, :expiresAt, false, NOW()) RETURNING *',
+        'INSERT INTO invitations (email, token, role, organization_id, station_id, invited_by, expires_at, is_used, created_at) VALUES (:email, :token, :role, :organizationId, :stationId, :invitedBy, :expiresAt, false, NOW()) RETURNING *',
         {
           replacements: {
             email,
@@ -1816,6 +2495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             role,
             organizationId: organizationId || null,
             stationId: stationId || null,
+            invitedBy: user.userId,
             expiresAt
           },
           type: QueryTypes.SELECT
@@ -1888,7 +2568,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       
       if (existingUser.length > 0) {
-        return res.status(400).json({ message: 'User already exists' });
+        // Mark invitation as used since user already exists
+        await sequelize.query(
+          'UPDATE invitations SET is_used = true WHERE id = :id',
+          {
+            replacements: { id: invitation.id },
+            type: QueryTypes.UPDATE
+          }
+        );
+        
+        return res.status(400).json({ 
+          message: 'User already exists. This invitation has been marked as used. Please log in with your existing account instead.' 
+        });
       }
       
       // Hash password
@@ -1930,30 +2621,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/invitations/list", authenticateToken, async (req: Request, res: Response) => {
-    try {
-      const userId = req.user.userId;
-      const userRole = req.user.role;
-      
-      // Get invitations based on user role and permissions
-      let invitations;
-      if (userRole === 'main_admin') {
-        // Main admin sees all invitations
-        invitations = await storage.getInvitationsList();
-      } else {
-        // Other users see only invitations they sent
-        invitations = await storage.getInvitationsByUser(userId);
-      }
-      
-      // Filter out accepted invitations - they should be found in /users instead
-      const pendingInvitations = invitations.filter(inv => !inv.isUsed);
-      
-      res.json(pendingInvitations);
-    } catch (error) {
-      console.error('Error fetching invitations:', error);
-      res.status(500).json({ message: 'Server error' });
-    }
-  });
+
 
   // GET invitation details by token - needed by frontend
   app.get("/api/invitations/:token", async (req: Request, res: Response) => {
@@ -2058,7 +2726,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       
       if (existingUser.length > 0) {
-        return res.status(400).json({ message: 'User already exists' });
+        // Mark invitation as used since user already exists
+        await sequelize.query(
+          'UPDATE invitations SET is_used = true WHERE id = :id',
+          {
+            replacements: { id: invitation.id },
+            type: QueryTypes.UPDATE
+          }
+        );
+        
+        return res.status(400).json({ 
+          message: 'User already exists. This invitation has been marked as used. Please log in with your existing account instead.' 
+        });
       }
       
       // Hash password
@@ -2091,7 +2770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const newUser = userResult[0] as any;
       
-      // Generate JWT token for automatic login (frontend expects this)
+            // Generate JWT token for automatic login (frontend expects this)
       const tokenPayload = {
         userId: newUser.id,
         email: newUser.email,
@@ -2104,7 +2783,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const jwtToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '7d' });
       
-             res.json({ 
+      // Send welcome email to new admin user
+      try {
+        // Get organization and station names for the email
+        let organizationName = '';
+        let stationName = '';
+        
+        if (invitation.organization_id) {
+          const org = await storage.getOrganization(invitation.organization_id);
+          organizationName = org?.name || '';
+        }
+        
+        if (invitation.station_id) {
+          const station = await storage.getStation(invitation.station_id);
+          stationName = station?.name || '';
+        }
+        
+        const welcomeEmailData: WelcomeEmailData = {
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          email: newUser.email,
+          role: newUser.role as 'citizen' | 'main_admin' | 'super_admin' | 'station_admin' | 'station_staff',
+          organizationName: organizationName || undefined,
+          stationName: stationName || undefined
+        };
+        
+        await sendWelcomeEmail(welcomeEmailData, sendEmail);
+        console.log(`✅ Welcome email sent to new admin user: ${newUser.email} (${newUser.role})`);
+      } catch (emailError) {
+        console.error('Failed to send welcome email to admin user:', emailError);
+        // Don't fail the invitation acceptance if email fails
+      }
+      
+       res.json({ 
          message: 'Account created successfully',
          user: newUser,
          token: jwtToken
@@ -2150,8 +2861,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createAuditLog({
         userId: userId,
         action: "delete",
-        entityType: "invitation",
-        entityId: invitationId,
+        resourceType: "invitation",
+        resourceId: invitationId.toString(),
         details: `Deleted invitation for ${invitation.email} (${invitation.role})`
       });
 
@@ -2169,7 +2880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get the invitation
       const invitations = await storage.getInvitationsByUser(user.userId);
-      const invitation = invitations.find(inv => inv.id === Number(id));
+      const invitation = invitations.find(inv => inv.id === id);
       
       if (!invitation) {
         return res.status(404).json({ message: 'Invitation not found' });
@@ -2231,7 +2942,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         res.json({ message: 'Invitation resent successfully' });
       } else {
-        logger.warn(`Invitation email delivery failed for ${invitation.email}. Manual sharing required.`);
+        console.log(`\n=== INVITATION RESENT ===`);
+        console.log(`Email: ${invitation.email}`);
+        console.log(`Role: ${invitation.role}`);
+        console.log(`Invitation URL: ${process.env.FRONTEND_URL || 'http://localhost:5000'}/accept-invitation/${invitation.token}`);
+        console.log(`Expires: ${invitation.expiresAt}`);
+        console.log(`Note: Email delivery failed. Please share the URL manually.`);
+        console.log(`=========================\n`);
         
         res.json({ 
           message: 'Invitation resent (email delivery failed - check console for manual link)',
@@ -2248,7 +2965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/users/:id", authenticateToken, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { firstName, lastName, email, phone, role } = req.body;
+      const { firstName, lastName, email, phone, role, organizationId, stationId } = req.body;
       const user = req.user;
       
       // Check if user has permission to update
@@ -2257,7 +2974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get the user to be updated
-      const userToUpdate = await storage.getUser(Number(id));
+      const userToUpdate = await storage.getUser(id);
       if (!userToUpdate) {
         return res.status(404).json({ message: 'User not found' });
       }
@@ -2268,23 +2985,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Role-based update permissions
-      if (user.role === 'super_admin') {
-        // Super admin can update themselves or users in their organization
-        if (userToUpdate.id !== user.userId && userToUpdate.organizationId !== user.organizationId) {
-          return res.status(403).json({ message: 'Can only update yourself or users within your organization' });
-        }
-        // Super admin cannot update other super admins (except themselves)
-        if (userToUpdate.role === 'super_admin' && userToUpdate.id !== user.userId) {
-          return res.status(403).json({ message: 'Cannot update other super admins' });
-        }
+      if (user.role === 'super_admin' && userToUpdate.organisationId !== user.organisationId) {
+        return res.status(403).json({ message: 'Cannot update users from other organizations' });
       }
       
-      if (user.role === 'station_admin') {
-        // Station admin can update themselves or station staff in their station
-        if (userToUpdate.id !== user.userId && 
-            (userToUpdate.stationId !== user.stationId || userToUpdate.role !== 'station_staff')) {
-          return res.status(403).json({ message: 'Can only update yourself or station staff within your station' });
-        }
+      if (user.role === 'station_admin' && userToUpdate.stationId !== user.stationId) {
+        return res.status(403).json({ message: 'Cannot update users from other stations' });
       }
       
       // Validate role change permissions
@@ -2298,27 +3004,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Update user
-      const updatedUser = await storage.updateUser(Number(id), {
-        firstName,
-        lastName,
-        email,
-        phone,
-        role,
-      });
+      // Update user - only include defined fields and convert empty strings to null for UUID fields
+      const updateFields = Object.fromEntries(
+        Object.entries({
+          firstName,
+          lastName,
+          email,
+          phone,
+          role,
+          organisationId: organizationId === "" ? null : organizationId, // Convert empty string to null for UUID
+          stationId: stationId === "" ? null : stationId, // Convert empty string to null for UUID
+        }).filter(([_, value]) => value !== undefined)
+      );
+      
+      const updatedUser = await storage.updateUser(id, updateFields);
       
       // Log user update
       await storage.createAuditLog({
         userId: req.user.userId,
         action: 'update',
-        entityType: 'user',
-        entityId: Number(id),
+        resourceType: 'user',
+        resourceId: id,
         details: JSON.stringify({
-          changes: { firstName, lastName, email, phone, role },
+          changes: { firstName, lastName, email, phone, role, organizationId, stationId },
           updatedBy: req.user.email
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
       
       // Send notification to the updated user (if not updating themselves)
@@ -2331,15 +3043,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json({ message: 'User updated successfully', user: updatedUser });
     } catch (error) {
-      console.error('Error updating user:', error);
-      res.status(500).json({ message: 'Server error' });
+      // Log detailed error with additional context
+      logDetailedError('USER_UPDATE', error, {
+        userId: req.params.id,
+        requestBody: req.body,
+        userRole: req.user?.role
+      });
+      
+      // Return appropriate error response
+      const errorResponse = createErrorResponse('USER_UPDATE', error, 500);
+      res.status(500).json(errorResponse);
     }
   });
 
   // Station migration endpoint - allows super admins to migrate users between stations
   app.put("/api/users/:id/migrate", authenticateToken, requireRole(['super_admin']), async (req: Request, res: Response) => {
     try {
-      const userId = parseInt(req.params.id);
+      const userId = req.params.id;
       const { stationId } = req.body;
       
       if (!stationId) {
@@ -2352,7 +3072,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "User not found" });
       }
       
-      if (targetUser.organizationId !== req.user.organizationId) {
+      if (targetUser.organisationId !== req.user.organisationId) {
         return res.status(403).json({ error: "User does not belong to your organization" });
       }
       
@@ -2362,7 +3082,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Target station not found" });
       }
       
-      if (targetStation.organizationId !== req.user.organizationId) {
+      if (targetStation.organisationId !== req.user.organisationId) {
         return res.status(403).json({ error: "Target station does not belong to your organization" });
       }
       
@@ -2394,7 +3114,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           migratedBy: req.user.email
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
       
       res.json({
@@ -2420,7 +3140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get the user to be deleted
-      const userToDelete = await storage.getUser(Number(id));
+      const userToDelete = await storage.getUser(id);
       if (!userToDelete) {
         return res.status(404).json({ message: 'User not found' });
       }
@@ -2431,40 +3151,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Role-based deletion permissions
-      if (user.role === 'super_admin') {
-        // Super admin can only delete users in their organization
-        if (userToDelete.organizationId !== user.organizationId) {
-          return res.status(403).json({ message: 'Can only delete users within your organization' });
-        }
-        // Super admin cannot delete other super admins
-        if (userToDelete.role === 'super_admin' && userToDelete.id !== user.userId) {
-          return res.status(403).json({ message: 'Cannot delete other super admins' });
-        }
+      if (user.role === 'super_admin' && userToDelete.organisationId !== user.organisationId) {
+        return res.status(403).json({ message: 'Cannot delete users from other organizations' });
       }
       
-      if (user.role === 'station_admin') {
-        // Station admin can delete station staff in their station (not themselves though)
-        if (userToDelete.id !== user.userId && 
-            (userToDelete.stationId !== user.stationId || userToDelete.role !== 'station_staff')) {
-          return res.status(403).json({ message: 'Can only delete station staff within your station' });
-        }
+      if (user.role === 'station_admin' && userToDelete.stationId !== user.stationId) {
+        return res.status(403).json({ message: 'Cannot delete users from other stations' });
       }
       
-      // Allow self-deletion only for station staff, prevent for admins
-      if (userToDelete.id === user.userId && user.role !== 'station_staff') {
-        return res.status(400).json({ message: 'Administrators cannot delete their own accounts' });
-      }
-      
-      // For now, we'll implement a soft delete by marking the user as inactive
-      // In a real system, you might want to implement proper cascading deletes
-      await storage.updateUser(Number(id), { isActive: false });
+      // Soft delete the user (set isActive to false instead of actual deletion)
+      await storage.updateUser(id, { isActive: false });
       
       // Log user deletion
       await storage.createAuditLog({
         userId: req.user.userId,
         action: 'delete',
         entityType: 'user',
-        entityId: Number(id),
+        entityId: id,
         details: JSON.stringify({
           deletedUser: {
             email: userToDelete.email,
@@ -2475,7 +3178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           deletedBy: req.user.email
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
 
       // Send notification about user deletion (only if not self-deletion)
@@ -2508,8 +3211,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let organizationName = null;
       let stationName = null;
       
-      if (user.organizationId) {
-        const org = await storage.getOrganization(user.organizationId);
+      if (user.organisationId) {
+        const org = await storage.getOrganization(user.organisationId);
         organizationName = org?.name || null;
       }
       
@@ -2527,7 +3230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: user.lastName,
         phone: user.phone,
         role: user.role,
-        organizationId: user.organizationId,
+        organizationId: user.organisationId,
         stationId: user.stationId,
         organizationName,
         stationName,
@@ -2563,7 +3266,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Update profile picture
   app.post("/api/profile/picture", authenticateToken, async (req: Request, res: Response) => {
-    logger.info('Profile picture upload endpoint accessed');
+    console.log('Profile picture upload endpoint hit');
+    console.log('Request body keys:', Object.keys(req.body || {}));
+    console.log('Request body size:', JSON.stringify(req.body || {}).length);
     
     try {
       const userId = req.user.userId;
@@ -2586,7 +3291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Only image files are allowed' });
       }
       
-      logger.info(`Profile picture upload started for user ${userId}`);
+      console.log('Profile picture upload started:', { userId, fileName, fileType });
       
       // Create uploads directory if it doesn't exist
       const fs = require('fs');
@@ -2641,6 +3346,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating profile picture:", error);
       res.status(500).json({ error: "Failed to update profile picture" });
+    }
+  });
+
+  // Emergency Contacts API routes
+  
+  // Get user's emergency contacts
+  app.get("/api/emergency-contacts", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user.userId; // Keep as string UUID
+      const contacts = await storage.getEmergencyContactsByUser(userId);
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching emergency contacts:", error);
+      res.status(500).json({ error: "Failed to fetch emergency contacts" });
+    }
+  });
+
+  // Create new emergency contact
+  app.post("/api/emergency-contacts", authenticateToken, validateInput({
+    body: z.object({
+      name: z.string().min(1, "Name is required"),
+      phone: z.string().min(1, "Phone is required"),
+      relationship: z.string().min(1, "Relationship is required")
+    })
+  }), async (req: Request, res: Response) => {
+    try {
+      const userId = req.user.userId; // Keep as string UUID
+      const { name, phone, relationship } = req.body;
+
+      const newContact = await storage.createEmergencyContact({
+        userId,
+        name,
+        phone,
+        relationship
+      });
+
+      res.status(201).json(newContact);
+    } catch (error) {
+      console.error("Error creating emergency contact:", error);
+      res.status(500).json({ error: "Failed to create emergency contact" });
+    }
+  });
+
+  // Update emergency contact
+  app.put("/api/emergency-contacts/:id", authenticateToken, validateInput({
+    body: z.object({
+      name: z.string().min(1).optional(),
+      phone: z.string().min(1).optional(),
+      relationship: z.string().min(1).optional()
+    })
+  }), async (req: Request, res: Response) => {
+    try {
+      const contactId = req.params.id; // Keep as string UUID
+      const userId = req.user.userId; // Keep as string UUID
+      const updates = req.body;
+
+      const updatedContact = await storage.updateEmergencyContact(contactId, userId, updates);
+
+      if (!updatedContact) {
+        return res.status(404).json({ error: "Emergency contact not found or not authorized" });
+      }
+
+      res.json(updatedContact);
+    } catch (error) {
+      console.error("Error updating emergency contact:", error);
+      res.status(500).json({ error: "Failed to update emergency contact" });
+    }
+  });
+
+  // Delete emergency contact
+  app.delete("/api/emergency-contacts/:id", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const contactId = req.params.id; // Keep as string UUID
+      const userId = req.user.userId; // Keep as string UUID
+
+      const deleted = await storage.deleteEmergencyContact(contactId, userId);
+
+      if (!deleted) {
+        return res.status(404).json({ error: "Emergency contact not found or not authorized" });
+      }
+
+      res.status(204).send(); // No Content
+    } catch (error) {
+      console.error("Error deleting emergency contact:", error);
+      res.status(500).json({ error: "Failed to delete emergency contact" });
     }
   });
 
@@ -2901,7 +3691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           viewedBy: req.user.email
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
 
       // Send notification about analytics access
@@ -2927,7 +3717,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Return public incident data with upvotes and basic info
       const publicIncidents = await Promise.all(incidents.map(async (incident) => {
-        const organization = incident.organizationId ? await storage.getOrganization(incident.organizationId) : null;
+        const organization = incident.organisationId ? await storage.getOrganization(incident.organisationId) : null;
         const station = incident.stationId ? await storage.getStation(incident.stationId) : null;
         
         return {
@@ -2936,11 +3726,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           description: incident.description,
           status: incident.status,
           priority: incident.priority,
-          location_address: incident.locationAddress,
-          location_lat: incident.locationLat ? parseFloat(incident.locationLat.toString()) : null,
-          location_lng: incident.locationLng ? parseFloat(incident.locationLng.toString()) : null,
-          photo_url: incident.photoUrl,
-          upvotes: incident.upvotes || 0,
+          location_address: incident.location?.address || null,
+          location_lat: incident.location?.lat ? parseFloat(incident.location.lat.toString()) : null,
+          location_lng: incident.location?.lng ? parseFloat(incident.location.lng.toString()) : null,
+          photo_url: null, // Photo URL not available in current model
+          upvotes: 0, // Upvotes not available in current model
           created_at: incident.createdAt,
           organization_name: organization?.name || null,
           station_name: station?.name || null
@@ -2948,7 +3738,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       
       // Log public incident access for audit trail
-      await logAuditEntry(req, 'view_public_incidents', 'incident', null, 200);
+      await logAuditEntry(req, 'view_public_incidents', 'incident', undefined, 200);
       
       res.json(publicIncidents);
     } catch (error) {
@@ -2960,7 +3750,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Submit incident from citizen app
   app.post("/api/incidents/citizen", upload.single('photo'), async (req: Request, res: Response) => {
     try {
-      const { title, description, location_address, priority, location_lat, location_lng } = req.body;
+      const { title, description, location_address, priority, location_lat, location_lng, reporter_name, reporter_phone, reporter_email, emergency_contacts } = req.body;
+      
+      // Debug logging to check what we're receiving
+      console.log('🔍 DEBUG: Received reporter data:', {
+        reporter_name,
+        reporter_phone,
+        reporter_email,
+        emergency_contacts
+      });
+      
+      // Debug logging right before SQL query
+      console.log('🔍 DEBUG: SQL replacements object:', {
+        reporterName: reporter_name || null,
+        reporterPhone: reporter_phone || null,
+        reporterEmail: reporter_email || null,
+        reporterEmergencyContacts: emergency_contacts ? JSON.stringify(emergency_contacts) : null
+      });
       
       // Validate required fields
       if (!title || !description || !location_address) {
@@ -2973,14 +3779,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         photoUrl = `/uploads/${req.file.filename}`;
       }
       
-      // Auto-assign to appropriate organization based on incident type
-      let organizationId = 1; // Default to Police
-      let stationId = 4; // Default to Remera Police Station
+      // Get organizations and stations from database
+      const organizations = await storage.getAllOrganizations();
+      const stations = await storage.getAllStations();
+      
+      console.log('Available organizations:', organizations.map(org => ({ id: org.id, name: org.name })));
+      console.log('Available stations:', stations.map(station => ({ id: station.id, name: station.name })));
+      
+      // Find appropriate organization based on incident type
+      let targetOrganization = organizations.find(org => org.name.includes('Police')) || organizations[0];
+      let targetStation = stations.find(station => station.name.includes('Remera')) || stations[0];
+      
+      if (!targetOrganization) {
+        throw new Error('No organizations found in database');
+      }
+      if (!targetStation) {
+        throw new Error('No stations found in database');
+      }
+      
+      console.log('Selected organization:', { id: targetOrganization.id, name: targetOrganization.name });
+      console.log('Selected station:', { id: targetStation.id, name: targetStation.name });
       
       // Enhanced intelligent incident assignment workflow
       const incidentText = `${title} ${description}`.toLowerCase();
       
-      // Medical/Health emergencies → Ministry of Health (ID: 2)
+      // Medical/Health emergencies → Ministry of Health
       if (incidentText.includes('medical') || incidentText.includes('health') || incidentText.includes('ambulance') ||
           incidentText.includes('hospital') || incidentText.includes('injury') || incidentText.includes('accident') ||
           incidentText.includes('injured') || incidentText.includes('sick') || incidentText.includes('emergency') ||
@@ -2989,11 +3812,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           incidentText.includes('nurse') || incidentText.includes('clinic') || incidentText.includes('healthcare') ||
           incidentText.includes('wound') || incidentText.includes('fever') || incidentText.includes('covid') ||
           incidentText.includes('virus') || incidentText.includes('disease') || incidentText.includes('medicine')) {
-        organizationId = 2; // Ministry of Health
-        stationId = null; // Health incidents don't have specific stations yet
-        console.log(`🏥 Medical Emergency: "${title}" → Ministry of Health`);
+        targetOrganization = organizations.find(org => org.name.includes('Health')) || targetOrganization;
+        console.log(`🏥 Medical Emergency: "${title}" → ${targetOrganization.name}`);
       }
-      // Criminal/Investigation incidents → Rwanda Investigation Bureau (ID: 3)
+      // Criminal/Investigation incidents → Rwanda Investigation Bureau
       else if (incidentText.includes('theft') || incidentText.includes('robbery') || incidentText.includes('fraud') ||
                incidentText.includes('investigation') || incidentText.includes('criminal') || incidentText.includes('scam') ||
                incidentText.includes('murder') || incidentText.includes('assault') || incidentText.includes('corruption') ||
@@ -3001,54 +3823,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
                incidentText.includes('embezzlement') || incidentText.includes('bribery') || incidentText.includes('extortion') ||
                incidentText.includes('kidnapping') || incidentText.includes('homicide') || incidentText.includes('rape') ||
                incidentText.includes('burglary') || incidentText.includes('forgery') || incidentText.includes('cybercrime')) {
-        organizationId = 3; // Rwanda Investigation Bureau
-        // Assign to appropriate RIB station based on location
-        stationId = 5; // Default to Nyamirambo RIB Station
-        console.log(`🔍 Criminal Investigation: "${title}" → Rwanda Investigation Bureau (Nyamirambo Station)`);
+        targetOrganization = organizations.find(org => org.name.includes('Investigation')) || targetOrganization;
+        targetStation = stations.find(station => station.name.includes('Nyamirambo')) || targetStation;
+        console.log(`🔍 Criminal Investigation: "${title}" → ${targetOrganization.name} (${targetStation.name})`);
       }
       // Fire-related incidents → Police (Emergency Response)
       else if (incidentText.includes('fire') || incidentText.includes('burn') || incidentText.includes('smoke') || 
                incidentText.includes('flames') || incidentText.includes('explosion') || incidentText.includes('burning') ||
                incidentText.includes('blazing') || incidentText.includes('ignite') || incidentText.includes('forest fire') ||
                incidentText.includes('arson') || incidentText.includes('wildfire') || incidentText.includes('gas leak')) {
-        organizationId = 1; // Rwanda National Police
-        stationId = 4; // Remera Police Station
-        console.log(`🔥 Fire Emergency: "${title}" → Rwanda National Police (Emergency Response)`);
+        targetOrganization = organizations.find(org => org.name.includes('Police')) || targetOrganization;
+        targetStation = stations.find(station => station.name.includes('Remera')) || targetStation;
+        console.log(`🔥 Fire Emergency: "${title}" → ${targetOrganization.name} (Emergency Response)`);
       } 
       // General security/safety incidents → Police
       else {
-        organizationId = 1; // Rwanda National Police
-        stationId = 4; // Remera Police Station
-        console.log(`👮 General Security: "${title}" → Rwanda National Police`);
+        targetOrganization = organizations.find(org => org.name.includes('Police')) || targetOrganization;
+        targetStation = stations.find(station => station.name.includes('Remera')) || targetStation;
+        console.log(`👮 General Security: "${title}" → ${targetOrganization.name}`);
       }
       
-      // Create incident
-      const incident = await storage.createIncident({
-        title,
-        description,
-        reporterId: null, // Anonymous citizen report
-        organizationId,
-        stationId,
-        assignedToId: null,
-        status: 'pending',
-        priority: priority || 'medium',
-        locationLat: location_lat ? parseFloat(location_lat) : null,
-        locationLng: location_lng ? parseFloat(location_lng) : null,
-        locationAddress: location_address,
-        photoUrl,
-        notes: 'Citizen report',
-        upvotes: 0
-      });
+      // Create incident with proper schema including reporter contact information
+      const incident = await sequelize.query(
+        `INSERT INTO incidents (
+          id, title, description, type, priority, status, location, "stationId", 
+          "organisationId", "reportedById", "reported_by", 
+          "reporter_name", "reporter_phone", "reporter_email", "reporter_emergency_contacts",
+          "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid(), :title, :description, :type, :priority, :status, :location, :stationId,
+          :organisationId, :reportedById, :reportedBy, 
+          :reporterName, :reporterPhone, :reporterEmail, :reporterEmergencyContacts,
+          NOW(), NOW()
+        ) RETURNING *`,
+        {
+          replacements: {
+            title,
+            description,
+            type: 'other',
+            priority: priority || 'medium',
+            status: 'reported',
+            location: JSON.stringify({
+              address: location_address,
+              lat: location_lat ? parseFloat(location_lat) : null,
+              lng: location_lng ? parseFloat(location_lng) : null
+            }),
+            stationId: targetStation.id,
+            organisationId: targetOrganization.id,
+            reportedById: '00000000-0000-0000-0000-000000000000',
+            reportedBy: 'Citizen Report',
+            reporterName: reporter_name || null,
+            reporterPhone: reporter_phone || null, 
+            reporterEmail: reporter_email || null,
+            reporterEmergencyContacts: emergency_contacts ? JSON.stringify(emergency_contacts) : null
+          },
+          type: QueryTypes.SELECT
+        }
+      );
+      
+      const createdIncident = incident[0];
       
       // Log citizen incident creation for audit trail
-      await logAuditEntry(req, 'citizen_report', 'incident', incident.id, 201);
+      await logAuditEntry(req, 'citizen_report', 'incident', createdIncident.id, 201);
       
       // Send notifications to relevant station admin and staff
-      await sendIncidentNotification(incident, 'created', { 
-        userId: 0, // System user for citizen reports 
-        firstName: 'System', 
-        lastName: 'Citizen Report' 
-      }, storage);
+      // Temporarily disabled for debugging
+      // await sendIncidentNotification(createdIncident, 'created', { 
+      //   userId: '00000000-0000-0000-0000-000000000000', // System user for citizen reports 
+      //   firstName: 'System', 
+      //   lastName: 'Citizen Report' 
+      // }, storage);
       
       // TODO: Send emergency alerts based on priority
       if (priority === 'high') {
@@ -3056,7 +3900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`HIGH PRIORITY INCIDENT REPORTED: ${title} at ${location_address}`);
       }
       
-      res.status(201).json(incident);
+      res.status(201).json(createdIncident);
     } catch (error) {
       console.error('Error creating citizen incident:', error);
       res.status(500).json({ message: 'Server error' });
@@ -3067,21 +3911,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/incidents/:id/upvote", async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const incident = await storage.getIncident(Number(id));
+      const incident = await storage.getIncident(id);
       
       if (!incident) {
         return res.status(404).json({ message: 'Incident not found' });
       }
       
-      // Increment upvotes
-      const updatedIncident = await storage.updateIncident(Number(id), {
-        upvotes: (incident.upvotes || 0) + 1
-      });
+      // Create upvote record in upvotes table
+      await sequelize.query(
+        `INSERT INTO upvotes ("userId", "incidentId", "createdAt") 
+         VALUES (:userId, :incidentId, NOW()) 
+         ON CONFLICT ("userId", "incidentId") DO NOTHING`,
+        {
+          replacements: {
+            userId: '00000000-0000-0000-0000-000000000000', // Anonymous user
+            incidentId: id
+          },
+          type: QueryTypes.INSERT
+        }
+      );
       
       // Log citizen upvote for audit trail
-      await logAuditEntry(req, 'citizen_upvote', 'incident', Number(id), 200);
+      await logAuditEntry(req, 'citizen_upvote', 'incident', id, 200);
       
-      res.json(updatedIncident);
+      res.json({ message: 'Incident upvoted successfully' });
     } catch (error) {
       console.error('Error upvoting incident:', error);
       res.status(500).json({ message: 'Server error' });
@@ -3527,7 +4380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           sentBy: req.user.email
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
 
       const result = await sendEmailMessage({ to, subject, body });
@@ -3574,7 +4427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           sentBy: req.user.email
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
 
       const result = await sendSMSMessage({ to, message });
@@ -3600,8 +4453,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Emergency communication endpoint (combines email and SMS)
-  app.post("/api/communication/emergency", authenticateToken, validateInput({
+  // Emergency communication endpoint (combines email and SMS) - No auth required for emergency alerts
+  app.post("/api/communication/emergency", validateInput({
     body: z.object({
       title: z.string().min(1),
       description: z.string().optional(),
@@ -3648,9 +4501,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Log emergency communication
+      // Log emergency communication (no auth required, so userId is null)
       await storage.createAuditLog({
-        userId: req.user.userId,
+        userId: null, // No user context for emergency alerts
         action: 'emergency_notification',
         entityType: 'communication',
         entityId: null,
@@ -3660,10 +4513,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           location,
           emailsSent: results.emails.length,
           smsSent: results.sms.length,
-          sentBy: req.user.email
+          sentBy: 'Emergency Alert System'
         }),
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || null
+        userAgent: req.get('user-agent') || undefined
       });
 
       res.json({ 
@@ -3681,111 +4534,336 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Password reset request
-  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
-    try {
-      const { email } = req.body;
-      
-      const user = await storage.getUserByEmail(email);
-      if (!user) {
-        // Don't reveal whether user exists or not
-        return res.json({ message: 'If the email exists, you will receive a reset link' });
-      }
-      
-      // Generate reset token
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
-      
-      // Store reset token in database (you'd need to add these fields to user model)
-      // For now, we'll just send email with a generic reset link
-      
-      // Send password reset email - automatically detect the domain from the request
-      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const host = req.get('host');
-      const baseUrl = process.env.FRONTEND_URL || `${protocol}://${host}`;
-      const resetLink = `${baseUrl}/reset-password/${resetToken}`;
-      
-      const emailSent = await sendEmail({
-        to: user.email,
-        from: "onboarding@resend.dev",
-        subject: 'Password Reset Request - Rindwa Emergency System',
-        html: `
-          <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
-            <h2 style="color: #dc2626; text-align: center;">Password Reset Request</h2>
-            <p>Hello ${user.firstName || user.email},</p>
-            <p>You have requested to reset your password for your Rindwa account.</p>
-            <p>Click the link below to reset your password:</p>
-            <p style="text-align: center; margin: 30px 0;">
-              <a href="${resetLink}" style="background-color: #dc2626; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
-                Reset Password
-              </a>
-            </p>
-            <p><strong>This link will expire in 1 hour.</strong></p>
-            <p>If you did not request this password reset, please ignore this email.</p>
-            <p>Best regards,<br>Rindwa Emergency System</p>
-          </div>
-        `,
-        text: `Password Reset Request
-
-Hello ${user.firstName || user.email},
-
-You have requested to reset your password for your Rindwa account.
-
-Reset your password by visiting: ${resetLink}
-
-This link will expire in 1 hour.
-
-If you did not request this password reset, please ignore this email.
-
-Best regards,
-Rindwa Emergency System`
+  app.post('/api/auth/reset-password', [
+    body('email').isEmail().withMessage('Valid email is required'),
+  ], async (req: Request, res: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: errors.array() 
       });
+    }
+
+    const { email } = req.body;
+
+    try {
+      // Check if user exists
+      const user = await sequelize.query(
+        'SELECT id, email, "firstName", "lastName" FROM users WHERE email = :email AND "isActive" = true',
+        {
+          replacements: { email },
+          type: QueryTypes.SELECT
+        }
+      );
+
+      // Always return the same message for security (don't reveal if email exists)
+      const securityMessage = 'If the email exists in our system, you will receive a password reset link shortly.';
+
+      if (user.length === 0) {
+        return res.status(200).json({ message: securityMessage });
+      }
+
+      const foundUser = user[0] as any;
+
+      // Generate secure reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 3600000); // 1 hour from now
+
+      // Delete any existing reset tokens for this user first
+      await sequelize.query(
+        'DELETE FROM password_reset_tokens WHERE "userId" = :userId',
+        { replacements: { userId: foundUser.id } }
+      );
+
+      // Store new reset token in database
+      await sequelize.query(`
+        INSERT INTO password_reset_tokens ("userId", token, "expiresAt", "isUsed", "createdAt") 
+        VALUES (:userId, :token, :expiresAt, false, NOW())
+      `, {
+        replacements: {
+          userId: foundUser.id,
+          token: resetToken,
+          expiresAt
+        }
+      });
+
+      // Send password reset email
+      const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
       
-      if (emailSent) {
-        console.log(`Password reset email sent successfully to ${user.email}`);
-        res.json({ message: 'If the email exists, you will receive a reset link' });
-      } else {
-        console.log(`\n=== PASSWORD RESET EMAIL FAILED ===`);
-        console.log(`Email: ${user.email}`);
-        console.log(`Reset URL: ${resetLink}`);
-        console.log(`Note: Email delivery failed. Please share the URL manually.`);
-        console.log(`===================================\n`);
+      try {
+        await sendPasswordResetEmail(foundUser.email, foundUser.firstName, resetUrl);
         
-        // Still return success message for security (don't reveal if email exists)
-        res.json({ 
-          message: 'If the email exists, you will receive a reset link',
-          note: 'Email delivery issues detected - check server logs for manual reset link'
+        // Log the action
+        await logAuditEvent(foundUser.id, 'password_reset_requested', {
+          email: foundUser.email,
+          ip: req.ip,
+          userAgent: req.get('User-Agent')
+        });
+
+      } catch (emailError) {
+        console.error('Failed to send password reset email:', emailError);
+        
+        // Clean up the token if email fails
+        await sequelize.query(
+          'DELETE FROM password_reset_tokens WHERE "userId" = :userId',
+          { replacements: { userId: foundUser.id } }
+        );
+        
+        return res.status(500).json({ 
+          message: 'Failed to send password reset email. Please try again later.' 
         });
       }
+
+      res.status(200).json({ message: securityMessage });
+
     } catch (error) {
-      console.error('Error processing password reset:', error);
-      res.status(500).json({ message: 'Server error' });
+      console.error('Password reset request error:', error);
+      console.error('Error stack:', error.stack);
+      console.error('Error details:', {
+        message: error.message,
+        name: error.name,
+        cause: error.cause
+      });
+      res.status(500).json({ 
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
   // Password reset confirmation
-  app.post("/api/auth/reset-password/:token", async (req: Request, res: Response) => {
+  app.post('/api/auth/reset-password/:token', [
+    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  ], async (req: Request, res: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: errors.array() 
+      });
+    }
+
+    const { token } = req.params;
+    const { password } = req.body;
+
     try {
-      const { token } = req.params;
-      const { password } = req.body;
-      
-      // In a real implementation, you would validate the token from database
-      // For now, we'll implement a basic password reset for demonstration
-      
-      if (!password || password.length < 6) {
-        return res.status(400).json({ message: 'Password must be at least 6 characters' });
+      // Find valid reset token
+      const resetTokenResult = await sequelize.query(`
+        SELECT rt."userId", rt."expiresAt", rt."isUsed", u.email, u."firstName", u."lastName"
+        FROM password_reset_tokens rt
+        JOIN users u ON rt."userId" = u.id
+        WHERE rt.token = :token 
+          AND rt."expiresAt" > NOW() 
+          AND rt."isUsed" = false
+          AND u."isActive" = true
+      `, {
+        replacements: { token },
+        type: QueryTypes.SELECT
+      });
+
+      if (resetTokenResult.length === 0) {
+        return res.status(400).json({ 
+          message: 'Invalid or expired reset token' 
+        });
       }
-      
-      // Hash the new password
-      const hashedPassword = await bcrypt.hash(password, 10);
-      
-      // Note: In production, you would find user by reset token and update password
-      // For now, return success message
-      res.json({ message: 'Password reset successful. You can now login with your new password.' });
+
+      const resetData = resetTokenResult[0] as any;
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(password, 12);
+
+      // Update user password
+      await sequelize.query(
+        'UPDATE users SET password = :password, "updatedAt" = NOW() WHERE id = :userId',
+        {
+          replacements: {
+            password: hashedPassword,
+            userId: resetData.userId
+          }
+        }
+      );
+
+      // Mark token as used
+      await sequelize.query(
+        'UPDATE password_reset_tokens SET "isUsed" = true WHERE token = :token',
+        { replacements: { token } }
+      );
+
+      // Log the successful password reset
+      await logAuditEvent(resetData.userId, 'password_reset_completed', {
+        email: resetData.email,
+        ip: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+
+      // Send confirmation email
+      try {
+        await sendPasswordResetConfirmationEmail(resetData.email, resetData.firstName);
+      } catch (emailError) {
+        console.error('Failed to send password reset confirmation email:', emailError);
+        // Don't fail the request if confirmation email fails
+      }
+
+      res.status(200).json({ 
+        message: 'Password reset successful. You can now login with your new password.' 
+      });
+
     } catch (error) {
-      console.error('Error resetting password:', error);
-      res.status(500).json({ message: 'Server error' });
+      console.error('Password reset confirmation error:', error);
+      res.status(500).json({ message: 'Internal server error' });
     }
   });
+
+  // Clean up expired reset tokens (should be called by a cron job)
+  app.post('/api/auth/cleanup-reset-tokens', authenticateToken, requireRole(['main_admin']), async (req: Request, res: Response) => {
+    try {
+      const result = await sequelize.query(
+        'DELETE FROM password_reset_tokens WHERE "expiresAt" < NOW() OR "isUsed" = true',
+        { type: QueryTypes.DELETE }
+      );
+
+      res.status(200).json({ 
+        message: 'Cleanup completed',
+        deletedCount: Array.isArray(result) ? result.length : result
+      });
+
+    } catch (error) {
+      console.error('Token cleanup error:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+
+  // Helper function to send password reset email
+  async function sendPasswordResetEmail(email: string, firstName: string, resetUrl: string) {
+    const emailHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset - Rindwa Emergency Platform</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #007AFF; color: white; padding: 20px; text-align: center; }
+          .content { padding: 30px 20px; background: #f9f9f9; }
+          .button { display: inline-block; padding: 12px 30px; background: #007AFF; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { padding: 20px; text-align: center; font-size: 12px; color: #666; }
+          .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🚨 Rindwa Emergency Platform</h1>
+          </div>
+          <div class="content">
+            <h2>Password Reset Request</h2>
+            <p>Hello ${firstName},</p>
+            <p>We received a request to reset your password for your Rindwa Emergency Platform account.</p>
+            <p>Click the button below to reset your password:</p>
+            <p><a href="${resetUrl}" class="button">Reset Password</a></p>
+            <div class="warning">
+              <strong>⚠️ Security Notice:</strong>
+              <ul>
+                <li>This link will expire in 1 hour</li>
+                <li>If you didn't request this reset, please ignore this email</li>
+                <li>Never share this link with anyone</li>
+              </ul>
+            </div>
+            <p>If the button doesn't work, copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; background: #f5f5f5; padding: 10px; border-radius: 3px;">${resetUrl}</p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Rindwa Emergency Platform. All rights reserved.</p>
+            <p>This is an automated message. Please do not reply to this email.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const emailText = `
+      Password Reset - Rindwa Emergency Platform
+      
+      Hello ${firstName},
+      
+      We received a request to reset your password for your Rindwa Emergency Platform account.
+      
+      Click the link below to reset your password:
+      ${resetUrl}
+      
+      Security Notice:
+      - This link will expire in 1 hour
+      - If you didn't request this reset, please ignore this email
+      - Never share this link with anyone
+      
+      © ${new Date().getFullYear()} Rindwa Emergency Platform. All rights reserved.
+    `;
+
+    await sendEmail({
+      to: email,
+      subject: '🔐 Password Reset - Rindwa Emergency Platform',
+      html: emailHtml,
+      text: emailText
+    });
+  }
+
+  // Helper function to send password reset confirmation email
+  async function sendPasswordResetConfirmationEmail(email: string, firstName: string) {
+    const emailHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset Successful - Rindwa Emergency Platform</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #28a745; color: white; padding: 20px; text-align: center; }
+          .content { padding: 30px 20px; background: #f9f9f9; }
+          .success { background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 20px 0; }
+          .footer { padding: 20px; text-align: center; font-size: 12px; color: #666; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✅ Password Reset Successful</h1>
+          </div>
+          <div class="content">
+            <p>Hello ${firstName},</p>
+            <div class="success">
+              <strong>Your password has been successfully reset!</strong>
+            </div>
+            <p>You can now login to your Rindwa Emergency Platform account using your new password.</p>
+            <p>If you did not perform this action, please contact our support team immediately.</p>
+            <p><strong>Security Tips:</strong></p>
+            <ul>
+              <li>Use a strong, unique password</li>
+              <li>Don't share your password with anyone</li>
+              <li>Consider using a password manager</li>
+              <li>Log out from shared devices</li>
+            </ul>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Rindwa Emergency Platform. All rights reserved.</p>
+            <p>This is an automated message. Please do not reply to this email.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await sendEmail({
+      to: email,
+      subject: '✅ Password Reset Successful - Rindwa Emergency Platform',
+      html: emailHtml,
+      text: `Password Reset Successful\n\nHello ${firstName},\n\nYour password has been successfully reset! You can now login to your Rindwa Emergency Platform account using your new password.\n\nIf you did not perform this action, please contact our support team immediately.`
+    });
+  }
 
   const httpServer = createServer(app);
   

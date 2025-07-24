@@ -23,17 +23,18 @@ export default function StationsPage() {
   const [editingStation, setEditingStation] = useState<Station | null>(null);
   const [formData, setFormData] = useState({
     name: "",
-    region: "",
     address: "",
-    phone: "",
+    contactNumber: "", // Changed from phone to match backend
     district: "",
     sector: "",
+    organisationId: "", // Added required field for backend
+    capacity: "", // Added optional field
   });
 
   const { data: stations, isLoading } = useQuery<Station[]>({
-    queryKey: ["/api/stations", user?.organizationId],
-    queryFn: () => getStations(user?.organizationId),
-    enabled: !!user?.organizationId,
+    queryKey: ["/api/stations", user?.organisationId],
+    queryFn: () => getStations(user?.organisationId),
+    enabled: !!user?.organisationId,
   });
 
   const createMutation = useMutation({
@@ -45,7 +46,7 @@ export default function StationsPage() {
         description: "Station created successfully",
       });
       setShowCreateModal(false);
-      setFormData({ name: "", region: "", address: "", phone: "", district: "", sector: "" });
+      setFormData({ name: "", address: "", contactNumber: "", district: "", sector: "", organisationId: "", capacity: "" });
     },
     onError: (error) => {
       toast({
@@ -66,7 +67,7 @@ export default function StationsPage() {
       });
       setShowEditModal(false);
       setEditingStation(null);
-      setFormData({ name: "", region: "", address: "", phone: "", district: "", sector: "" });
+      setFormData({ name: "", address: "", contactNumber: "", district: "", sector: "", organisationId: "", capacity: "" });
     },
     onError: (error) => {
       toast({

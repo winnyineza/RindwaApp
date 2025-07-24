@@ -17,15 +17,15 @@ export const register = async (userData: any) => {
 };
 
 export const getStoredToken = (): string | null => {
-  return localStorage.getItem("authToken");
+  return localStorage.getItem("@rindwa/token");
 };
 
 export const setStoredToken = (token: string): void => {
-  localStorage.setItem("authToken", token);
+  localStorage.setItem("@rindwa/token", token);
 };
 
 export const removeStoredToken = (): void => {
-  localStorage.removeItem("authToken");
+  localStorage.removeItem("@rindwa/token");
 };
 
 export const logout = (): void => {

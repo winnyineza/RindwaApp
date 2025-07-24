@@ -23,19 +23,21 @@ export const useAuth = () => {
           return;
         }
 
-        const newUser = {
+        const newUser: User = {
           id: payload.userId,
           email: payload.email,
           firstName: payload.firstName || '',
           lastName: payload.lastName || '',
           role: payload.role,
-          organizationId: payload.organizationId,
+          organisationId: payload.organisationId,
           stationId: payload.stationId,
           organizationName: payload.organizationName || '',
           stationName: payload.stationName || '',
           phone: payload.phone || '',
           isActive: true,
-          createdAt: payload.createdAt || ''
+          isInvited: false,
+          createdAt: payload.createdAt || '',
+          updatedAt: payload.updatedAt || payload.createdAt || ''
         };
         
         setUser(newUser);
@@ -73,19 +75,21 @@ export const useAuth = () => {
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       
-      const newUser = {
+      const newUser: User = {
         id: payload.userId,
         email: payload.email,
         firstName: payload.firstName || '',
         lastName: payload.lastName || '',
         role: payload.role,
-        organizationId: payload.organizationId,
+        organisationId: payload.organisationId,
         stationId: payload.stationId,
         organizationName: payload.organizationName || '',
         stationName: payload.stationName || '',
         phone: payload.phone || '',
         isActive: true,
-        createdAt: payload.createdAt || ''
+        isInvited: false,
+        createdAt: payload.createdAt || '',
+        updatedAt: payload.updatedAt || payload.createdAt || ''
       };
       
       setUser(newUser);

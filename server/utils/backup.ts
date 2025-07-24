@@ -1,8 +1,8 @@
+import fs from 'fs';
+import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import path from 'path';
-import fs from 'fs';
-import { logger } from './logger';
+import logger from './logger';
 
 const execAsync = promisify(exec);
 

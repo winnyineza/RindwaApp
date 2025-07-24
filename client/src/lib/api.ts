@@ -42,24 +42,24 @@ export const api = {
 export const getIncidents = () => api.get("/api/incidents");
 export const getIncidentStats = () => api.get("/api/stats");
 export const createIncident = (data: any) => api.post("/api/incidents", data);
-export const updateIncident = (id: number, data: any) => api.put(`/api/incidents/${id}`, data);
-export const assignIncident = (id: number, data: any) => api.put(`/api/incidents/${id}/assign`, data);
-export const escalateIncident = (id: number, data: any) => api.post(`/api/incidents/${id}/escalate`, data);
+export const updateIncident = (id: string, data: any) => api.put(`/api/incidents/${id}`, data);
+export const assignIncident = (id: string, data: any) => api.put(`/api/incidents/${id}/assign`, data);
+export const escalateIncident = (id: string, data: any) => api.post(`/api/incidents/${id}/escalate`, data);
 
 export const getOrganizations = () => api.get("/api/organizations");
 export const createOrganization = (data: any) => api.post("/api/organizations", data);
-export const updateOrganization = (id: number, data: any) => api.put(`/api/organizations/${id}`, data);
-export const deleteOrganization = (id: number) => api.delete(`/api/organizations/${id}`);
+export const updateOrganization = (id: string, data: any) => api.put(`/api/organizations/${id}`, data);
+export const deleteOrganization = (id: string) => api.delete(`/api/organizations/${id}`);
 
-export const getStations = (organizationId?: number) => 
-  api.get(`/api/stations${organizationId ? `?organizationId=${organizationId}` : ""}`);
+export const getStations = (organisationId?: string) => 
+  api.get(`/api/stations${organisationId ? `?organisationId=${organisationId}` : ""}`);
 export const createStation = (data: any) => api.post("/api/stations", data);
-export const updateStation = (id: number, data: any) => api.put(`/api/stations/${id}`, data);
+export const updateStation = (id: string, data: any) => api.put(`/api/stations/${id}`, data);
 
 export const getUsers = (params?: any) => {
   const query = new URLSearchParams(params).toString();
   return api.get(`/api/users${query ? `?${query}` : ""}`);
 };
 
-export const migrateUser = (userId: number, stationId: number) => 
+export const migrateUser = (userId: string, stationId: string) => 
   api.put(`/api/users/${userId}/migrate`, { stationId });

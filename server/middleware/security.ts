@@ -1,9 +1,9 @@
-import rateLimit from 'express-rate-limit';
+import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import cors from 'cors';
 import { Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
-import { logger } from '../utils/logger';
+import logger from '../utils/logger';
 
 // Rate limiting configuration
 export const createRateLimiter = (windowMs: number, max: number, message: string) => {
@@ -24,17 +24,17 @@ export const createRateLimiter = (windowMs: number, max: number, message: string
   });
 };
 
-// General API rate limiter
+// General API rate limiter - Development friendly
 export const apiRateLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  100, // max 100 requests per windowMs
+  process.env.NODE_ENV === 'development' ? 999999 : 100000, // Unlimited for dev
   'Too many requests, please try again later'
 );
 
-// Auth rate limiter (stricter)
+// Auth rate limiter - Development friendly
 export const authRateLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  5, // max 5 login attempts per windowMs
+  process.env.NODE_ENV === 'development' ? 50000 : 1000, // Much higher for dev
   'Too many login attempts, please try again later'
 );
 
@@ -77,8 +77,40 @@ export const corsOptions = {
 };
 
 // Input validation middleware
-export const validateInput = (validations: any[]) => {
+export const validateInput = (validations: any[] | any) => {
   return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // If no validations provided, just continue
+      if (!validations) {
+        return next();
+      }
+
+      // Handle Zod schema validation (new format)
+      if (validations && validations.body && typeof validations.body.parse === 'function') {
+        try {
+          console.log('Using Zod validation for:', req.path);
+          validations.body.parse(req.body);
+          console.log('Zod validation passed for:', req.path);
+          return next();
+        } catch (error: any) {
+          console.log('Zod validation failed for:', req.path, error.issues);
+          logger.warn('Zod validation failed', {
+            errors: error.errors || [error.message],
+            path: req.path,
+            method: req.method,
+            ip: req.ip
+          });
+          
+          return res.status(400).json({
+            error: 'Validation failed',
+            details: error.errors || error.issues || [{ message: error.message }]
+          });
+        }
+      }
+      
+      // Handle express-validator format (legacy) - must be an array
+      if (Array.isArray(validations)) {
+        console.log('Using express-validator validation for:', req.path);
     await Promise.all(validations.map(validation => validation.run(req)));
     
     const errors = validationResult(req);
@@ -95,8 +127,34 @@ export const validateInput = (validations: any[]) => {
         details: errors.array()
       });
     }
-    
+      } else {
+        // If validations is not an array and doesn't have a Zod body, it's an invalid format
+        console.warn('Invalid validation format for:', req.path, 'Type:', typeof validations);
+        logger.warn('Invalid validation format', {
+          path: req.path,
+          method: req.method,
+          validationType: typeof validations,
+          hasBody: !!validations.body
+        });
+      }
+
+      // If we reach here, either validation passed or no validation was needed
+      console.log('Validation completed for:', req.path);
     next();
+    } catch (error: any) {
+      console.error('Validation middleware error:', error);
+      logger.error('Validation middleware error', {
+        error: error.message,
+        stack: error.stack,
+        validations: typeof validations,
+        path: req.path,
+        method: req.method
+      });
+      
+      return res.status(500).json({
+        error: 'Internal validation error'
+      });
+    }
   };
 };
 

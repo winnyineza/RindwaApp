@@ -23,6 +23,13 @@ import {
 } from "lucide-react";
 import { Incident } from "@/types";
 import { getUsers, assignIncident, updateIncident, escalateIncident } from "@/lib/api";
+import { formatForDisplay, formatAssignmentTime } from "../../utils/dateUtils";
+
+// Add missing formatDate function
+const formatDate = (dateString: string) => {
+  if (!dateString) return 'N/A';
+  return new Date(dateString).toLocaleString();
+};
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -53,7 +60,7 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
   });
 
   const assignMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => assignIncident(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) => assignIncident(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
@@ -121,7 +128,7 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
     assignMutation.mutate({
       id: incident.id,
       data: {
-        assignedToId: parseInt(assigneeId),
+        assignedToId: assigneeId, // UUID string
         priority: priority || incident.priority,
         notes: notes || incident.notes,
       },
@@ -158,7 +165,7 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
     assignMutation.mutate({
       id: incident.id,
       data: {
-        assignedToId: parseInt(user.userId),
+        assignedToId: user.userId || user.id, // UUID string
         priority: incident.priority,
         notes: incident.notes || "",
       },
@@ -196,9 +203,7 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
     );
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
-  };
+  // Using shared date utilities instead of custom formatDate
 
   const canAssign = user?.role === 'station_admin' || user?.role === 'super_admin';
   const canEdit = user?.role === 'station_admin' || user?.role === 'super_admin' || user?.role === 'station_staff';
@@ -230,88 +235,103 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {incident.reporterInfo ? (
+              {incident.reporter_name || incident.reporter_phone || incident.reporter_email || 
+               (incident.reporter_emergency_contacts && incident.reporter_emergency_contacts.length > 0) ? (
                 <>
                   <div>
-                    <h4 className="font-medium text-gray-900">Name</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {incident.reporterInfo.name || 'Not provided'}
-                    </p>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                        <Mail className="h-4 w-4" />
-                        Email Contact
-                      </h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        {incident.reporterInfo.email}
-                      </p>
-                    </div>
-                    
-                    {incident.reporterInfo.phone && (
-                      <div>
-                        <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                          <Phone className="h-4 w-4" />
-                          Phone Contact
-                        </h4>
-                        <p className="text-sm text-gray-600 mt-1">
-                          {incident.reporterInfo.phone}
-                        </p>
+                    <h4 className="font-medium text-gray-900 mb-3">Reporter Details</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <span className="text-lg">👤</span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {incident.reporter_name || 'Citizen Report'}
+                          </p>
+                          <p className="text-sm text-gray-500">Reporter</p>
+                        </div>
                       </div>
-                    )}
+                      
+                      {incident.reporter_phone && (
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm text-gray-700">Phone:</span>
+                          <span className="text-sm text-gray-900">{incident.reporter_phone}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => window.open(`tel:${incident.reporter_phone}`, '_self')}
+                            className="ml-auto text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-1"
+                          >
+                            <Phone className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                      
+                      {incident.reporter_email && (
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm text-gray-700">Email:</span>
+                          <span className="text-sm text-gray-900">{incident.reporter_email}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => window.open(`mailto:${incident.reporter_email}`, '_self')}
+                            className="ml-auto text-blue-600 hover:text-blue-700 hover:bg-blue-50 p-1"
+                          >
+                            <Mail className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   
-                  <div>
-                    <h4 className="font-medium text-gray-900">Reporter Type</h4>
-                    <Badge className="mt-1" variant={incident.reporterInfo.role === 'citizen' ? 'secondary' : 'default'}>
-                      {incident.reporterInfo.role === 'citizen' ? 'Citizen Report' : 'Official Report'}
-                    </Badge>
-                  </div>
-                  
-                  {/* Emergency Contacts */}
-                  {incident.reporterInfo.emergencyContacts && incident.reporterInfo.emergencyContacts.length > 0 && (
+                  {incident.reporter_emergency_contacts && incident.reporter_emergency_contacts.length > 0 && (
                     <div className="border-t pt-4">
-                      <h4 className="font-medium text-gray-900 flex items-center gap-2 mb-3">
+                      <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
                         <Shield className="h-4 w-4 text-red-600" />
-                        Emergency Contacts
+                        Emergency Contacts Notified
                       </h4>
                       <div className="space-y-2">
-                        {incident.reporterInfo.emergencyContacts.map((contact, index) => (
-                          <div key={contact.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-sm text-gray-900">{contact.name}</span>
-                                {contact.isPrimary && (
-                                  <Badge variant="destructive" className="text-xs">Primary</Badge>
-                                )}
+                        {incident.reporter_emergency_contacts.map((contact, index) => (
+                          <div key={index} className="bg-red-50 border border-red-100 rounded-lg p-3">
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium text-gray-900">{contact.name}</p>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {contact.relationship}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm font-mono text-gray-600 mt-1">{contact.phone}</p>
                               </div>
-                              <div className="text-xs text-gray-600 mt-1">
-                                {contact.relationship} • {contact.phone}
-                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => window.open(`tel:${contact.phone}`, '_self')}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-100 p-1"
+                              >
+                                <Phone className="h-4 w-4" />
+                              </Button>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => window.open(`tel:${contact.phone}`, '_self')}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Phone className="h-4 w-4" />
-                            </Button>
                           </div>
                         ))}
                       </div>
+                      <p className="text-xs text-gray-500 mt-3 flex items-center gap-1">
+                        <span className="text-green-600">✓</span>
+                        These contacts were automatically notified when the incident was reported
+                      </p>
                     </div>
                   )}
                 </>
               ) : (
-                <div className="text-center py-4">
-                  <User className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">Anonymous Report</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    No reporter information available
-                  </p>
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                    <User className="h-8 w-8 text-gray-400" />
+                  </div>
+                  <h4 className="font-medium text-gray-900 mb-2">Anonymous Report</h4>
+                  <p className="text-sm text-gray-500">No reporter information available</p>
                 </div>
               )}
             </CardContent>
@@ -329,6 +349,15 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
               </div>
               
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h4 className="font-medium text-gray-900">Type</h4>
+                  <div className="mt-1">
+                    <Badge variant="outline" className="capitalize">
+                      {incident.type || 'Other'}
+                    </Badge>
+                  </div>
+                </div>
+                
                 <div>
                   <h4 className="font-medium text-gray-900">Status</h4>
                   <div className="mt-1">
@@ -360,10 +389,12 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
                           ) : (
                             // Admins can set any status
                             <>
+                              <SelectItem value="reported">Reported</SelectItem>
                               <SelectItem value="pending">Pending</SelectItem>
                               <SelectItem value="assigned">Assigned</SelectItem>
                               <SelectItem value="in_progress">In Progress</SelectItem>
                               <SelectItem value="resolved">Resolved</SelectItem>
+                              <SelectItem value="closed">Closed</SelectItem>
                               <SelectItem value="escalated">Escalated</SelectItem>
                             </>
                           )}
@@ -403,11 +434,11 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
                   Location
                 </h4>
                 <p className="text-sm text-gray-600 mt-1">
-                  {incident.locationAddress || "No location specified"}
+                  {incident.location?.address || "No location specified"}
                 </p>
-                {incident.locationLat && incident.locationLng && (
+                {incident.location?.lat && incident.location?.lng && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Coordinates: {incident.locationLat}, {incident.locationLng}
+                    Coordinates: {incident.location.lat}, {incident.location.lng}
                   </p>
                 )}
               </div>
@@ -482,6 +513,84 @@ export const IncidentDetailModal = ({ isOpen, onClose, incident }: IncidentDetai
                       {incident.notes || "No notes available"}
                     </p>
                   )}
+                </div>
+              </div>
+
+              {/* Escalation Information */}
+              {(incident.escalatedBy || incident.escalatedAt || incident.escalationReason) && (
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
+                    Escalation Details
+                  </h4>
+                  <div className="mt-2 space-y-2">
+                    {incident.escalatedAt && (
+                      <div>
+                        <span className="text-sm font-medium text-gray-700">Escalated:</span>
+                        <span className="text-sm text-gray-600 ml-2">{formatDate(incident.escalatedAt)}</span>
+                      </div>
+                    )}
+                    {incident.escalationLevel > 0 && (
+                      <div>
+                        <span className="text-sm font-medium text-gray-700">Level:</span>
+                        <Badge variant="destructive" className="ml-2">Level {incident.escalationLevel}</Badge>
+                      </div>
+                    )}
+                    {incident.escalationReason && (
+                      <div>
+                        <span className="text-sm font-medium text-gray-700">Reason:</span>
+                        <p className="text-sm text-gray-600 mt-1 bg-red-50 p-2 rounded-md">
+                          {incident.escalationReason}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Community Engagement & Submission Details */}
+              <div className="border-t pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Community Upvotes */}
+                  <div>
+                    <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                      <span className="text-lg">👍</span>
+                      Community Support
+                    </h4>
+                    <div className="mt-2">
+                      <Badge 
+                        variant={incident.upvotes && incident.upvotes > 0 ? "default" : "secondary"} 
+                        className="text-sm"
+                      >
+                        {incident.upvotes || 0} upvotes
+                      </Badge>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {incident.upvotes && incident.upvotes > 0 
+                          ? `This incident has ${incident.upvotes} community votes` 
+                          : 'No community votes yet'
+                        }
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Submission Details */}
+                  <div>
+                    <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                      <span className="text-lg">📋</span>
+                      Submission Info
+                    </h4>
+                    <div className="mt-2 space-y-1">
+                      <div className="text-xs text-gray-600">
+                        <span className="font-medium">Reported By:</span> {incident.reported_by || 'System User'}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        <span className="font-medium">Incident Type:</span> {incident.type || 'Other'}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        <span className="font-medium">Submitted:</span> {formatDate(incident.createdAt)}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 

@@ -117,7 +117,7 @@ export const NotificationCenter = () => {
   useEffect(() => {
     if (!user) return;
 
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('@rindwa/token');
     if (!token) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -154,16 +154,16 @@ export const NotificationCenter = () => {
           queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread'] });
         }
       } catch (error) {
-
+        console.error('WebSocket message parsing error:', error);
       }
     };
 
     ws.onerror = (error) => {
-
+      console.error('WebSocket error:', error);
     };
 
     ws.onclose = () => {
-
+      console.log('WebSocket connection closed');
     };
 
     return () => {

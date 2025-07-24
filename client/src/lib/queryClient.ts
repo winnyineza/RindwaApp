@@ -11,7 +11,7 @@ export async function apiRequest(
   url: string,
   options?: RequestInit,
 ): Promise<Response> {
-  const token = localStorage.getItem('authToken');
+  const token = localStorage.getItem('@rindwa/token');
   
   const headers: Record<string, string> = {
     ...((options?.headers as Record<string, string>) || {}),
@@ -41,7 +41,7 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const token = localStorage.getItem('authToken');
+    const token = localStorage.getItem('@rindwa/token');
     const headers: Record<string, string> = {};
     
     if (token) {

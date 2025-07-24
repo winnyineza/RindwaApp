@@ -37,7 +37,11 @@ interface Incident {
   description: string;
   status: string;
   priority: string;
-  location: string;
+  location: {
+    lat?: number;
+    lng?: number;
+    address?: string;
+  } | string;
   createdAt: string;
   assignedTo?: string;
   reportedBy?: string;
@@ -48,6 +52,16 @@ export default function IncidentHistoryPage() {
   const { t } = useTranslation();
   
   const [searchTerm, setSearchTerm] = useState("");
+  
+  const formatLocation = (location: Incident['location']) => {
+    if (typeof location === 'string') {
+      return location;
+    }
+    if (location && typeof location === 'object') {
+      return location.address || `${location.lat}, ${location.lng}` || 'Location not specified';
+    }
+    return 'Location not specified';
+  };
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [dateRange, setDateRange] = useState("all");
@@ -61,7 +75,7 @@ export default function IncidentHistoryPage() {
   const filteredIncidents = incidents.filter(incident => {
     const matchesSearch = incident.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          incident.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         incident.location.toLowerCase().includes(searchTerm.toLowerCase());
+                         formatLocation(incident.location).toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === "all" || incident.status === statusFilter;
     const matchesPriority = priorityFilter === "all" || incident.priority === priorityFilter;
@@ -251,10 +265,12 @@ export default function IncidentHistoryPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="reported">Reported</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="assigned">Assigned</SelectItem>
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="resolved">Resolved</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
                   <SelectItem value="escalated">Escalated</SelectItem>
                 </SelectContent>
               </Select>
@@ -338,13 +354,13 @@ export default function IncidentHistoryPage() {
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <MapPin className="h-3 w-3 text-gray-400" />
-                            <span className="text-sm">{incident.location}</span>
+                            <span className="text-sm">{formatLocation(incident.location)}</span>
                           </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <Calendar className="h-3 w-3 text-gray-400" />
-                            <span className="text-sm">{formatDate(incident.createdAt || incident.created_at)}</span>
+                            <span className="text-sm">{formatDate(incident.createdAt)}</span>
                           </div>
                         </TableCell>
                         <TableCell>

@@ -16,7 +16,7 @@ interface Invitation {
   id: number;
   email: string;
   role: string;
-  organizationId?: number;
+  organisationId?: string; // UUID string, British spelling
   stationId?: number;
   token: string;
   expiresAt: string;

@@ -14,7 +14,9 @@ import {
   Award,
   Timer,
   MapPin,
-  FileText
+  FileText,
+  Activity,
+  Loader2
 } from 'lucide-react';
 import { getIncidentStats, getIncidents } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
@@ -25,20 +27,69 @@ export const StationStaffWidgets = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
 
-  const { data: stats } = useQuery({
+  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery({
     queryKey: ['/api/stats'],
     queryFn: getIncidentStats,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
-  const { data: incidents } = useQuery({
+  const { data: incidents, isLoading: incidentsLoading, error: incidentsError } = useQuery({
     queryKey: ['/api/incidents'],
     queryFn: getIncidents,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
 
+  // Show loading state
+  if (statsLoading || incidentsLoading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i} className="animate-pulse">
+            <CardHeader>
+              <div className="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="h-8 bg-gray-200 rounded"></div>
+                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  // Show errors if any
+  if (statsError || incidentsError) {
+    return (
+      <div className="grid grid-cols-1 gap-6">
+        <Card className="border-red-200">
+          <CardHeader>
+            <CardTitle className="text-red-600 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Error Loading Dashboard Data
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 text-sm">
+              {statsError && <p className="text-red-600">• Failed to load incident statistics</p>}
+              {incidentsError && <p className="text-red-600">• Failed to load incidents</p>}
+              <p className="text-gray-600 mt-4">Please refresh the page or contact support if the issue persists.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Calculate real-time metrics based on actual incidents
+  const currentUserId = user?.userId || user?.id;
   const myAssignedIncidents = incidents?.filter(incident => {
-    const currentUserId = user?.userId || user?.id;
-    return incident.assignedToId === currentUserId;
+    return incident.assignedToId === currentUserId || incident.assignedTo === currentUserId;
   }) || [];
 
   const myCompletedToday = myAssignedIncidents.filter(incident => {
@@ -64,6 +115,14 @@ export const StationStaffWidgets = () => {
     incident.status === 'resolved'
   ).length;
 
+  const myInProgressIncidents = myAssignedIncidents.filter(incident => 
+    incident.status === 'in_progress'
+  ).length;
+
+  const myPendingIncidents = myAssignedIncidents.filter(incident => 
+    incident.status === 'pending' || incident.status === 'assigned'
+  ).length;
+
   const successRate = myAssignedIncidents.length > 0 ? 
     Math.round((myResolvedIncidents / myAssignedIncidents.length) * 100) : 0;
 
@@ -77,59 +136,41 @@ export const StationStaffWidgets = () => {
         return total + (end.getTime() - start.getTime());
       }, 0) / myResolvedIncidents / (1000 * 60)) : 0;
 
-  const staffMetrics = {
-    assignedCases: myAssignedIncidents.length,
-    completedToday: myCompletedToday,
-    avgResponseTime: avgResponseTime,
-    successRate: successRate,
-    totalResolved: myResolvedIncidents,
-    pendingCases: stats?.pending || 0,
-    weeklyTarget: 10, // Set a reasonable weekly target
-    weeklyCompleted: myResolvedIncidents,
-    highPriority: myHighPriority,
-    mediumPriority: myMediumPriority,
-    lowPriority: myLowPriority,
-  };
+  const weeklyTarget = 10; // Set a reasonable weekly target
+  const weeklyCompleted = myResolvedIncidents;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {/* My Workload */}
-      <Card className="col-span-1 md:col-span-2">
+      {/* My Assignments Overview */}
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ClipboardList className="h-5 w-5" />
-            My Workload
+            My Assignments
+            <Badge variant="outline" className="ml-auto">Live</Badge>
           </CardTitle>
           <CardDescription>
-            Track your assigned cases and daily progress
+            Your current incident assignments
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{staffMetrics.assignedCases}</div>
-              <p className="text-sm text-muted-foreground">Assigned Cases</p>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm">Total Assigned</span>
+              <span className="font-bold text-blue-600">{myAssignedIncidents.length}</span>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{staffMetrics.completedToday}</div>
-              <p className="text-sm text-muted-foreground">Completed Today</p>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">In Progress</span>
+              <span className="font-bold text-orange-600">{myInProgressIncidents}</span>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-orange-600">{staffMetrics.pendingCases}</div>
-              <p className="text-sm text-muted-foreground">Pending</p>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">Completed Today</span>
+              <span className="font-bold text-green-600">{myCompletedToday}</span>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{staffMetrics.avgResponseTime}m</div>
-              <p className="text-sm text-muted-foreground">Avg Response</p>
+            <div className="flex items-center justify-between">
+              <span className="text-sm">Success Rate</span>
+              <span className="font-bold">{successRate}%</span>
             </div>
-          </div>
-          <div className="mt-4">
-            <Link href="/incidents">
-              <Button>
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                View My Cases
-              </Button>
-            </Link>
           </div>
         </CardContent>
       </Card>
@@ -139,94 +180,85 @@ export const StationStaffWidgets = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5" />
-            My Performance
+            Performance Metrics
+            <Badge variant="outline" className="ml-auto text-xs">Real-time</Badge>
           </CardTitle>
+          <CardDescription>
+            Your work performance indicators
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <span className="text-sm">Success Rate</span>
-              <span className="font-bold">{staffMetrics.successRate}%</span>
-            </div>
-            <Progress value={staffMetrics.successRate} className="h-2" />
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Total Resolved</span>
-                <span className="font-medium">{staffMetrics.totalResolved}</span>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <span>Success Rate</span>
+                <span>{successRate}%</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span>Response Time</span>
-                <Badge variant="secondary">{staffMetrics.avgResponseTime}m avg</Badge>
+              <Progress value={successRate} className="h-2" />
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <span>Weekly Progress</span>
+                <span>{Math.round((weeklyCompleted / weeklyTarget) * 100)}%</span>
+              </div>
+              <Progress value={Math.min((weeklyCompleted / weeklyTarget) * 100, 100)} className="h-2" />
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="text-center p-2 bg-green-50 rounded">
+                <div className="text-lg font-bold text-green-600">{myResolvedIncidents}</div>
+                <p className="text-xs text-gray-600">Resolved</p>
+              </div>
+              <div className="text-center p-2 bg-blue-50 rounded">
+                <div className="text-lg font-bold text-blue-600">{avgResponseTime}m</div>
+                <p className="text-xs text-gray-600">Avg Time</p>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Weekly Target */}
+      {/* Priority Breakdown */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Target className="h-5 w-5" />
-            Weekly Target
+            Priority Breakdown
           </CardTitle>
+          <CardDescription>
+            Your assignments by priority level
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600">
-                {staffMetrics.weeklyCompleted}/{staffMetrics.weeklyTarget}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                <span className="text-sm">High Priority</span>
               </div>
-              <p className="text-sm text-gray-600">Cases Completed</p>
-            </div>
-            <Progress 
-              value={(staffMetrics.weeklyCompleted / staffMetrics.weeklyTarget) * 100} 
-              className="h-2" 
-            />
-            <div className="text-center">
-              <Badge variant="outline">
-                {staffMetrics.weeklyTarget - staffMetrics.weeklyCompleted} remaining
+              <Badge variant={myHighPriority > 0 ? "destructive" : "secondary"}>
+                {myHighPriority}
               </Badge>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Active Cases */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5" />
-            Active Cases
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                High Priority
-              </span>
-              <Badge variant="destructive">{staffMetrics.highPriority}</Badge>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                <span className="text-sm">Medium Priority</span>
+              </div>
+              <Badge variant={myMediumPriority > 0 ? "default" : "secondary"}>
+                {myMediumPriority}
+              </Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm flex items-center gap-1">
-                <Timer className="h-3 w-3" />
-                Medium Priority
-              </span>
-              <Badge variant="secondary">{staffMetrics.mediumPriority}</Badge>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                <span className="text-sm">Low Priority</span>
+              </div>
+              <Badge variant="secondary">{myLowPriority}</Badge>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm flex items-center gap-1">
-                <CheckCircle className="h-3 w-3" />
-                Low Priority
-              </span>
-              <Badge variant="outline">{staffMetrics.lowPriority}</Badge>
-            </div>
-            <div className="mt-4 text-center">
-              <Link href="/incident-history">
-                <Button variant="outline" size="sm">
-                  <FileText className="h-4 w-4 mr-2" />
+            <div className="pt-2">
+              <Link href="/incidents">
+                <Button size="sm" className="w-full">
+                  <ClipboardList className="h-4 w-4 mr-2" />
                   View All Cases
                 </Button>
               </Link>
@@ -235,43 +267,151 @@ export const StationStaffWidgets = () => {
         </CardContent>
       </Card>
 
-      {/* Achievement Board */}
-      <Card className="col-span-1 md:col-span-2">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Award className="h-5 w-5" />
-            Achievement Board
-          </CardTitle>
-          <CardDescription>
-            Your accomplishments and recognition
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8">
-            <Award className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-lg font-medium text-gray-500">No achievements yet</p>
-            <p className="text-sm text-gray-400 mt-2">
-              Complete your first incident to unlock achievements
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Today's Schedule */}
+      {/* Today's Activity */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5" />
-            Today's Schedule
+            Today's Activity
           </CardTitle>
+          <CardDescription>
+            Your work summary for today
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-center py-6">
-            <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-lg font-medium text-gray-500">No scheduled tasks</p>
-            <p className="text-sm text-gray-400 mt-2">
-              Your daily assignments will appear here
-            </p>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Pending Tasks
+              </span>
+              <Badge variant={myPendingIncidents > 0 ? "destructive" : "secondary"}>
+                {myPendingIncidents}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm flex items-center gap-1">
+                <Activity className="h-3 w-3" />
+                In Progress
+              </span>
+              <Badge variant={myInProgressIncidents > 0 ? "default" : "secondary"}>
+                {myInProgressIncidents}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm flex items-center gap-1">
+                <CheckCircle className="h-3 w-3" />
+                Completed Today
+              </span>
+              <Badge variant="secondary">{myCompletedToday}</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm flex items-center gap-1">
+                <Timer className="h-3 w-3" />
+                Response Time
+              </span>
+              <span className="text-sm font-medium">{avgResponseTime}m avg</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recent Assignments */}
+      <Card className="md:col-span-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5" />
+            Recent Assignments
+            <Badge variant="outline" className="ml-auto text-xs">Live</Badge>
+          </CardTitle>
+          <CardDescription>
+            Your most recently assigned incidents
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {myAssignedIncidents.length > 0 ? (
+              myAssignedIncidents.slice(0, 4).map((incident: any) => (
+                <div key={incident.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">{incident.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(incident.createdAt).toLocaleDateString()} • {incident.type}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge 
+                      variant={
+                        incident.priority === 'critical' || incident.priority === 'high' 
+                          ? "destructive" 
+                          : incident.priority === 'medium' 
+                          ? "default" 
+                          : "secondary"
+                      }
+                      className="text-xs"
+                    >
+                      {incident.priority}
+                    </Badge>
+                    <Badge 
+                      variant={
+                        incident.status === 'resolved' 
+                          ? "secondary" 
+                          : incident.status === 'in_progress' 
+                          ? "default" 
+                          : "outline"
+                      }
+                      className="text-xs"
+                    >
+                      {incident.status.replace('_', ' ')}
+                    </Badge>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <ClipboardList className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                <p className="text-sm">No incidents assigned yet</p>
+                <p className="text-xs">New assignments will appear here</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+          <CardDescription>
+            Common tasks for station staff
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <Link href="/incidents">
+              <Button variant="outline" className="w-full justify-start">
+                <ClipboardList className="h-4 w-4 mr-2" />
+                My Incidents
+              </Button>
+            </Link>
+            <Link href="/incident-workflow">
+              <Button variant="outline" className="w-full justify-start">
+                <Activity className="h-4 w-4 mr-2" />
+                Workflow
+              </Button>
+            </Link>
+            <Link href="/reports">
+              <Button variant="outline" className="w-full justify-start">
+                <FileText className="h-4 w-4 mr-2" />
+                Reports
+              </Button>
+            </Link>
+            <Link href="/profile">
+              <Button variant="outline" className="w-full justify-start">
+                <Award className="h-4 w-4 mr-2" />
+                My Profile
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>

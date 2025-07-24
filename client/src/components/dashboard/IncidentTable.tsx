@@ -7,7 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Plus, Eye, UserPlus, Edit, Play, CheckCircle, AlertTriangle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Search, Plus, Eye, UserPlus, Edit, Play, CheckCircle, AlertTriangle, Clock, User } from "lucide-react";
 import { getIncidents, assignIncident, updateIncident } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { AssignmentModal } from "./AssignmentModal";
@@ -16,6 +19,90 @@ import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Incident } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatSmart, formatForDisplay } from "../../utils/dateUtils";
+
+// Quick Resolution Modal Component
+const QuickResolutionModal = ({ 
+  isOpen, 
+  onClose, 
+  incident, 
+  onResolve 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  incident: Incident | null; 
+  onResolve: (resolutionData: { resolution: string; notes: string }) => void;
+}) => {
+  const [resolution, setResolution] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const handleSubmit = () => {
+    if (!resolution.trim()) return;
+    onResolve({ resolution: resolution.trim(), notes: notes.trim() });
+    setResolution("");
+    setNotes("");
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle className="h-5 w-5 text-green-600" />
+            Mark Case Resolved
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label className="text-sm font-medium">Incident</Label>
+            <div className="mt-1 text-sm text-gray-600">
+              {incident?.title}
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="resolution" className="text-sm font-medium text-red-600">
+              Resolution Summary *
+            </Label>
+            <Textarea
+              id="resolution"
+              placeholder="Describe how this incident was resolved..."
+              value={resolution}
+              onChange={(e) => setResolution(e.target.value)}
+              className="mt-1"
+              rows={3}
+            />
+          </div>
+          <div>
+            <Label htmlFor="notes" className="text-sm font-medium">
+              Additional Notes
+            </Label>
+            <Textarea
+              id="notes"
+              placeholder="Any additional notes or follow-up actions..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="mt-1"
+              rows={2}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmit}
+            disabled={!resolution.trim()}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            <CheckCircle className="h-4 w-4 mr-2" />
+            Mark Resolved
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 export const IncidentTable = () => {
   const { user, loading: authLoading } = useAuth();
@@ -25,16 +112,17 @@ export const IncidentTable = () => {
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showResolutionModal, setShowResolutionModal] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
 
   const { data: incidents, isLoading } = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
     queryFn: getIncidents,
-          enabled: !authLoading && !!user
+    enabled: !authLoading && !!user, // Only run query when user is authenticated
   });
 
   const assignMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => assignIncident(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) => assignIncident(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
@@ -55,7 +143,7 @@ export const IncidentTable = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => updateIncident(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) => updateIncident(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
@@ -78,20 +166,31 @@ export const IncidentTable = () => {
     // Role-based filtering for station incidents
     if (user?.role === 'station_staff' || user?.role === 'station_admin') {
       const stationMatches = incident.stationId === user.stationId;
-
+      console.log(`Filtering incident ${incident.id}: stationId=${incident.stationId}, userStationId=${user.stationId}, matches=${stationMatches}`);
       return matchesSearch && matchesStatus && stationMatches;
     } else if (user?.role === 'super_admin') {
-      return matchesSearch && matchesStatus && incident.organizationId === user.organizationId;
+      return matchesSearch && matchesStatus && incident.organisationId === user.organisationId;
     }
     
     return matchesSearch && matchesStatus;
   }) || [];
 
+  console.log('=== FILTERING RESULTS ===');
+  console.log('All incidents:', incidents?.length || 0);
+  console.log('All station incidents:', allStationIncidents.length);
+  console.log('User role:', user?.role);
+  console.log('User station ID:', user?.stationId);
+
+  // Filter incidents assigned to current user
   const myAssignedIncidents = allStationIncidents?.filter(incident => {
-    const currentUserId = user?.id;
+    const currentUserId = user?.userId || user?.id;
     const isAssigned = incident.assignedToId === currentUserId;
+    console.log(`Incident ${incident.id} assigned check: assignedToId=${incident.assignedToId}, userId=${currentUserId}, isAssigned=${isAssigned}`);
     return isAssigned;
   }) || [];
+
+  console.log('My assigned incidents:', myAssignedIncidents.length);
+  console.log('=== END FILTERING RESULTS ===');
 
   // Choose which incidents to display based on active tab
   const filteredIncidents = activeTab === "assigned" ? myAssignedIncidents : allStationIncidents;
@@ -121,8 +220,8 @@ export const IncidentTable = () => {
   };
 
   const handleSelfAssign = (incident: Incident) => {
-    const currentUserId = user?.id;
-    
+    const currentUserId = user?.userId || user?.id;
+    console.log('Self-assign attempt:', { incidentId: incident.id, userId: currentUserId });
     if (currentUserId) {
       assignMutation.mutate({
         id: incident.id,
@@ -147,14 +246,31 @@ export const IncidentTable = () => {
   };
 
   const handleQuickResolve = (incident: Incident) => {
+    setSelectedIncident(incident);
+    setShowResolutionModal(true);
+  };
+
+  const handleResolutionSubmit = (resolutionData: { resolution: string; notes: string }) => {
+    if (!selectedIncident) return;
+    
     updateMutation.mutate({
-      id: incident.id,
-      data: { status: 'resolved' }
+      id: selectedIncident.id,
+      data: { 
+        status: 'resolved',
+        resolution: resolutionData.resolution,
+        notes: resolutionData.notes,
+        resolvedBy: user?.userId || user?.id,
+        resolvedAt: new Date().toISOString()
+      }
     });
+    
     toast({
       title: "Success",
       description: "Incident marked as resolved",
     });
+    
+    setShowResolutionModal(false);
+    setSelectedIncident(null);
   };
 
   const handleWorkflowChange = (incident: Incident, value: string) => {
@@ -194,14 +310,14 @@ export const IncidentTable = () => {
 
   const getStatusBadge = (status: string) => {
     const statusClasses = {
-      pending: "bg-yellow-100 text-yellow-800 border-yellow-300",
-      assigned: "bg-blue-100 text-blue-800 border-blue-300",
+      reported: "bg-blue-100 text-blue-800 border-blue-300",
+      assigned: "bg-purple-100 text-purple-800 border-purple-300",
       in_progress: "bg-orange-100 text-orange-800 border-orange-300",
       resolved: "bg-green-100 text-green-800 border-green-300",
       escalated: "bg-red-100 text-red-800 border-red-300",
     };
     
-    const safeStatus = status || "pending";
+    const safeStatus = status || "reported";
     
     return (
       <Badge className={cn("border", statusClasses[safeStatus as keyof typeof statusClasses])}>
@@ -227,23 +343,7 @@ export const IncidentTable = () => {
     );
   };
 
-  const formatTimeAgo = (dateString: string) => {
-    if (!dateString) return 'Unknown';
-    
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Invalid date';
-    
-    const now = new Date();
-    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
-    
-    if (diffInMinutes < 60) {
-      return `${diffInMinutes} min ago`;
-    } else if (diffInMinutes < 1440) {
-      return `${Math.floor(diffInMinutes / 60)} hour${Math.floor(diffInMinutes / 60) > 1 ? 's' : ''} ago`;
-    } else {
-      return `${Math.floor(diffInMinutes / 1440)} day${Math.floor(diffInMinutes / 1440) > 1 ? 's' : ''} ago`;
-    }
-  };
+  // Remove custom formatTimeAgo - using shared date utilities instead
 
   // Handle loading states
   if (authLoading || isLoading) {
@@ -298,7 +398,7 @@ export const IncidentTable = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="reported">Reported</SelectItem>
                   <SelectItem value="assigned">Assigned</SelectItem>
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="resolved">Resolved</SelectItem>
@@ -363,6 +463,52 @@ export const IncidentTable = () => {
           }}
         />
       )}
+
+      {showResolutionModal && selectedIncident && (
+        <Dialog open={showResolutionModal} onOpenChange={setShowResolutionModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Resolve Incident</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="resolution">Resolution Details</Label>
+                <Textarea
+                  id="resolution"
+                  placeholder="Describe how the incident was resolved..."
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="notes">Additional Notes</Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Any additional notes..."
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowResolutionModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  const resolution = (document.getElementById('resolution') as HTMLTextAreaElement)?.value;
+                  const notes = (document.getElementById('notes') as HTMLTextAreaElement)?.value;
+                  handleResolutionSubmit({ resolution, notes });
+                }}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                Mark as Resolved
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 
@@ -389,7 +535,7 @@ export const IncidentTable = () => {
                   #INC-{(incident.id || 0).toString().padStart(4, '0')}
                 </div>
                 <div className="text-sm text-gray-500">
-                  {formatTimeAgo(incident.createdAt || '')}
+                  {formatSmart(incident.createdAt || '')}
                 </div>
               </TableCell>
               <TableCell>
@@ -399,10 +545,15 @@ export const IncidentTable = () => {
                 <div className="text-sm text-gray-500 truncate max-w-xs">
                   {incident.description || 'No description available'}
                 </div>
+                {incident.location?.address && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    📍 {incident.location.address}
+                  </div>
+                )}
               </TableCell>
               <TableCell>
                 <div className="text-sm text-gray-900">
-                  {incident.locationAddress || 'Unknown'}
+                  {incident.location?.address || 'Unknown'}
                 </div>
               </TableCell>
               <TableCell>
@@ -410,11 +561,26 @@ export const IncidentTable = () => {
               </TableCell>
               <TableCell>
                 {incident.assignedToId ? (
-                  <div className="text-sm text-gray-900">
-                    {incident.assignedToName || 'Assigned'}
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      "w-2 h-2 rounded-full",
+                      incident.assignedToId === (user?.userId || user?.id) 
+                        ? "bg-green-500" 
+                        : "bg-blue-500"
+                    )}></div>
+                    <div className="text-sm text-gray-900">
+                      {incident.assignedToId === (user?.userId || user?.id) ? (
+                        <span className="font-medium text-green-700">You</span>
+                      ) : (
+                        incident.assignedToName || 'Assigned User'
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <div className="text-sm text-gray-500">Unassigned</div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-gray-300"></div>
+                    <div className="text-sm text-gray-500">Unassigned</div>
+                  </div>
                 )}
               </TableCell>
               <TableCell>
@@ -422,13 +588,129 @@ export const IncidentTable = () => {
               </TableCell>
               <TableCell>
                 <div className="flex items-center gap-2">
-                  {/* Station Staff dropdown workflow */}
+                  {/* Enhanced Case Management - Prominent Action Buttons */}
                   {user?.role === 'station_staff' && (
+                    <div className="flex items-center gap-2">
+                      {/* Quick Action Buttons for Station Staff */}
+                      {incident.status === 'reported' && !incident.assignedToId && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleSelfAssign(incident)}
+                          className="bg-red-600 hover:bg-red-700 text-white h-8 px-3 font-medium"
+                          disabled={assignMutation.isPending}
+                        >
+                          <UserPlus className="w-3 h-3 mr-1" />
+                          Take Case
+                        </Button>
+                      )}
+                      
+                      {incident.status === 'assigned' && incident.assignedToId === (user?.userId || user?.id) && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleStartWork(incident)}
+                          className="bg-green-600 hover:bg-green-700 text-white h-8 px-3"
+                          disabled={updateMutation.isPending}
+                        >
+                          <Play className="w-3 h-3 mr-1" />
+                          Start Work
+                        </Button>
+                      )}
+                      
+                      {incident.status === 'in_progress' && incident.assignedToId === (user?.userId || user?.id) && (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => handleQuickResolve(incident)}
+                            className="bg-green-600 hover:bg-green-700 text-white h-8 px-3"
+                            disabled={updateMutation.isPending}
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Resolve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              updateMutation.mutate({
+                                id: incident.id,
+                                data: { status: 'escalated' }
+                              });
+                            }}
+                            className="h-8 px-3 border-orange-300 text-orange-600 hover:bg-orange-50"
+                            disabled={updateMutation.isPending}
+                          >
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            Escalate
+                          </Button>
+                        </>
+                      )}
+                      
+                      {/* Always show view button */}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleViewIncident(incident)}
+                        className="h-8 px-2 text-gray-600 hover:text-gray-800"
+                      >
+                        <Eye className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Enhanced Case Management for Station Admin */}
+                  {user?.role === 'station_admin' && (
+                    <div className="flex items-center gap-2">
+                      {/* Take Case Button for Admins */}
+                      <Button
+                        size="sm"
+                        onClick={() => handleSelfAssign(incident)}
+                        className="bg-red-600 hover:bg-red-700 text-white h-8 px-3 font-medium"
+                        disabled={assignMutation.isPending}
+                      >
+                        <UserPlus className="w-3 h-3 mr-1" />
+                        Take Case
+                      </Button>
+                      
+                      {/* Assign to Staff Button */}
+                      {!incident.assignedToId && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleAssignIncident(incident)}
+                          className="h-8 px-3 border-purple-300 text-purple-600 hover:bg-purple-50"
+                        >
+                          <User className="w-3 h-3 mr-1" />
+                          Assign Staff
+                        </Button>
+                      )}
+                      
+                      {/* View and Edit Buttons */}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleViewIncident(incident)}
+                        className="h-8 px-2 text-blue-600 hover:text-blue-800"
+                      >
+                        <Eye className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleEditIncident(incident)}
+                        className="h-8 px-2 text-green-600 hover:text-green-800"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Legacy dropdown for other cases */}
+                  {user?.role === 'station_staff' && false && (
                     <div className="flex items-center gap-2">
                       <Select
                         value=""
                         onValueChange={(value) => {
-                    
+                          console.log('Station staff action selected:', value, 'for incident:', incident.id);
                           handleWorkflowChange(incident, value);
                         }}
                       >
@@ -444,11 +726,11 @@ export const IncidentTable = () => {
                             </div>
                           </SelectItem>
                         
-                        {/* Pending - not assigned to anyone */}
-                        {incident.status === 'pending' && !incident.assignedToId && (
+                        {/* Reported - not assigned to anyone */}
+                        {incident.status === 'reported' && !incident.assignedToId && (
                           <SelectItem value="self_assign">
                             <div className="flex items-center gap-2">
-                              <UserPlus className="w-3 h-3 text-blue-600" />
+                              <UserPlus className="w-3 h-3 text-red-600" />
                               Take Case
                             </div>
                           </SelectItem>
@@ -500,7 +782,7 @@ export const IncidentTable = () => {
                       <Select
                         value=""
                         onValueChange={(value) => {
-                    
+                          console.log('Station admin action selected:', value, 'for incident:', incident.id);
                           handleWorkflowChange(incident, value);
                         }}
                       >
@@ -519,7 +801,7 @@ export const IncidentTable = () => {
                           {/* Self-assign option for station admins - always available */}
                           <SelectItem value="self_assign">
                             <div className="flex items-center gap-2">
-                              <UserPlus className="w-3 h-3 text-blue-600" />
+                              <UserPlus className="w-3 h-3 text-red-600" />
                               Take Case
                             </div>
                           </SelectItem>
@@ -552,8 +834,39 @@ export const IncidentTable = () => {
                     </div>
                   )}
                   
+                  {/* Super Admin Controls */}
+                  {user?.role === 'super_admin' && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleSelfAssign(incident)}
+                        className="bg-red-600 hover:bg-red-700 text-white h-8 px-3 font-medium"
+                        disabled={assignMutation.isPending}
+                      >
+                        <UserPlus className="w-3 h-3 mr-1" />
+                        Take Case
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleViewIncident(incident)}
+                        className="h-8 px-2 text-blue-600 hover:text-blue-800"
+                      >
+                        <Eye className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleEditIncident(incident)}
+                        className="h-8 px-2 text-green-600 hover:text-green-800"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
+                  
                   {/* View button for other roles */}
-                  {user?.role !== 'station_admin' && (
+                  {!['station_admin', 'station_staff', 'super_admin'].includes(user?.role || '') && (
                     <Button
                       variant="ghost"
                       size="sm"

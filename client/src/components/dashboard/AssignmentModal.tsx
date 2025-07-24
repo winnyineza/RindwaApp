@@ -17,7 +17,7 @@ interface AssignmentModalProps {
 
 export const AssignmentModal = ({ incident, onClose, onSubmit }: AssignmentModalProps) => {
   const { user } = useAuth();
-  const [assignedToId, setAssignedToId] = useState<string>("");
+  const [assignedTo, setAssignedTo] = useState<string>("");
   const [priority, setPriority] = useState<string>("");
   const [notes, setNotes] = useState("");
 
@@ -28,17 +28,17 @@ export const AssignmentModal = ({ incident, onClose, onSubmit }: AssignmentModal
   });
 
   const handleSubmit = () => {
-    if (!assignedToId || !priority) return;
+    if (!assignedTo || !priority) return;
 
     onSubmit({
-      assignedToId: parseInt(assignedToId),
+      assignedTo: assignedTo, // UUID string - aligned with backend field name
       priority,
       notes,
     });
   };
 
   const resetForm = () => {
-    setAssignedToId("");
+    setAssignedTo("");
     setPriority("");
     setNotes("");
   };
@@ -63,7 +63,7 @@ export const AssignmentModal = ({ incident, onClose, onSubmit }: AssignmentModal
           
           <div>
             <Label className="text-sm font-medium text-gray-700">Select Staff Member</Label>
-            <Select value={assignedToId} onValueChange={setAssignedToId}>
+            <Select value={assignedTo} onValueChange={setAssignedTo}>
               <SelectTrigger className="mt-2">
                 <SelectValue placeholder="Choose a staff member..." />
               </SelectTrigger>
@@ -110,7 +110,7 @@ export const AssignmentModal = ({ incident, onClose, onSubmit }: AssignmentModal
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!assignedToId || !priority}
+            disabled={!assignedTo || !priority}
             className="bg-red-600 hover:bg-red-700"
           >
             Assign Incident

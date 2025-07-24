@@ -45,11 +45,13 @@ export default function UsersPage() {
     lastName: "",
     phone: "",
     role: "",
+    organizationId: "",
+    stationId: "",
   });
   const [inviteData, setInviteData] = useState({
     email: "",
     role: "",
-    organizationId: "",
+    organisationId: "",
     stationId: "",
   });
   const [searchTerm, setSearchTerm] = useState("");
@@ -91,7 +93,7 @@ export default function UsersPage() {
     if (filterRole !== "all" && user.role !== filterRole) return false;
     
     // Organization filter
-    if (filterOrg !== "all" && user.organizationId?.toString() !== filterOrg) return false;
+          if (filterOrg !== "all" && user.organisationId?.toString() !== filterOrg) return false;
     
     return true;
   });
@@ -99,13 +101,13 @@ export default function UsersPage() {
   const { data: organizations } = useQuery({
     queryKey: ["/api/organizations"],
     queryFn: getOrganizations,
-    enabled: currentUser?.role === 'main_admin'
+    enabled: !!currentUser && ['main_admin', 'super_admin', 'station_admin'].includes(currentUser.role)
   });
 
   const { data: stations } = useQuery({
     queryKey: ["/api/stations"],
-    queryFn: getStations,
-    enabled: currentUser?.role === 'super_admin'
+    queryFn: () => getStations(),
+    enabled: !!currentUser && ['main_admin', 'super_admin', 'station_admin'].includes(currentUser.role)
   });
 
   const sendInvitationMutation = useMutation({
@@ -114,8 +116,8 @@ export default function UsersPage() {
       body: JSON.stringify({
         email: data.email,
         role: data.role,
-        organizationId: data.organizationId ? parseInt(data.organizationId) : undefined,
-        stationId: data.stationId ? parseInt(data.stationId) : undefined,
+        organisationId: data.organisationId || undefined,
+        stationId: data.stationId || undefined,
       })
     }),
     onSuccess: () => {
@@ -124,7 +126,7 @@ export default function UsersPage() {
         description: "The invitation has been sent successfully.",
       });
       setShowInviteModal(false);
-      setInviteData({ email: "", role: "", organizationId: "", stationId: "" });
+      setInviteData({ email: "", role: "", organisationId: "", stationId: "" });
     },
     onError: (error: any) => {
       toast({
@@ -136,8 +138,8 @@ export default function UsersPage() {
   });
 
   const deleteUserMutation = useMutation({
-    mutationFn: (userId: number) => apiRequest(`/api/users/${userId}`, {
-      method: 'DELETE',
+    mutationFn: (userId: string) => apiRequest(`/api/users/${userId}`, {
+      method: 'DELETE'
     }),
     onSuccess: () => {
       toast({
@@ -158,7 +160,7 @@ export default function UsersPage() {
   });
 
   const editUserMutation = useMutation({
-    mutationFn: ({ userId, userData }: { userId: number; userData: any }) => 
+    mutationFn: ({ userId, userData }: { userId: string; userData: any }) => 
       apiRequest(`/api/users/${userId}`, {
         method: 'PUT',
         body: JSON.stringify(userData),
@@ -182,7 +184,7 @@ export default function UsersPage() {
   });
 
   const migrateMutation = useMutation({
-    mutationFn: ({ userId, stationId }: { userId: number; stationId: number }) => 
+    mutationFn: ({ userId, stationId }: { userId: string; stationId: string }) => 
       migrateUser(userId, stationId),
     onSuccess: (data) => {
       toast({
@@ -257,6 +259,8 @@ export default function UsersPage() {
       lastName: userObj.lastName,
       phone: userObj.phone || "",
       role: userObj.role,
+      organizationId: userObj.organisationId || "",
+      stationId: userObj.stationId || "",
     });
     setShowEditModal(true);
   };
@@ -277,7 +281,7 @@ export default function UsersPage() {
     e.preventDefault();
     if (userToEdit) {
       editUserMutation.mutate({
-        userId: userToEdit.id,
+        userId: userToEdit.id.toString(),
         userData: editFormData,
       });
     }
@@ -288,7 +292,7 @@ export default function UsersPage() {
     if (userToMigrate && migrationData.stationId) {
       migrateMutation.mutate({
         userId: userToMigrate.id,
-        stationId: parseInt(migrationData.stationId),
+        stationId: migrationData.stationId,
       });
     }
   };
@@ -388,7 +392,7 @@ export default function UsersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers?.map((user) => (
+                  {filteredUsers?.map((user: any) => (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">
                         {user.firstName} {user.lastName}
@@ -498,7 +502,7 @@ export default function UsersPage() {
             {currentUser?.role === 'main_admin' && (
               <div>
                 <Label htmlFor="organization">Organization</Label>
-                <Select value={inviteData.organizationId} onValueChange={(value) => setInviteData({...inviteData, organizationId: value})}>
+                <Select value={inviteData.organisationId} onValueChange={(value) => setInviteData({...inviteData, organisationId: value})}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select organization" />
                   </SelectTrigger>
@@ -748,6 +752,40 @@ export default function UsersPage() {
               </Select>
             </div>
             
+            <div>
+              <Label htmlFor="editOrganization">Organization</Label>
+              <Select value={editFormData.organizationId || "none"} onValueChange={(value) => setEditFormData({...editFormData, organizationId: value === "none" ? "" : value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No organization</SelectItem>
+                  {organizations?.map((org: any) => (
+                    <SelectItem key={org.id} value={org.id}>
+                      {org.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label htmlFor="editStation">Station</Label>
+              <Select value={editFormData.stationId || "none"} onValueChange={(value) => setEditFormData({...editFormData, stationId: value === "none" ? "" : value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select station" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No station</SelectItem>
+                  {stations?.map((station: any) => (
+                    <SelectItem key={station.id} value={station.id}>
+                      {station.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => setShowEditModal(false)}>
                 Cancel
@@ -795,7 +833,7 @@ export default function UsersPage() {
                   <SelectValue placeholder={t('selectTargetStation')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {stations?.map(station => (
+                  {stations?.map((station: any) => (
                     <SelectItem key={station.id} value={station.id.toString()}>
                       {station.name}
                     </SelectItem>

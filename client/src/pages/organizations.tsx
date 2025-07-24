@@ -32,6 +32,12 @@ export default function OrganizationsPage() {
     name: "",
     type: "",
     description: "",
+    email: "",
+    phone: "",
+    address: "",
+    city: "",
+    country: "Rwanda",
+    website: "",
   });
 
   const { data: organizations, isLoading } = useQuery({
@@ -48,7 +54,7 @@ export default function OrganizationsPage() {
         description: "Organization created successfully",
       });
       setShowCreateModal(false);
-      setFormData({ name: "", type: "", description: "" });
+      setFormData({ name: "", type: "", description: "", email: "", phone: "", address: "", city: "", country: "Rwanda", website: "" });
     },
     onError: (error) => {
       toast({
@@ -60,7 +66,7 @@ export default function OrganizationsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => updateOrganization(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) => updateOrganization(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
       toast({
@@ -69,7 +75,7 @@ export default function OrganizationsPage() {
       });
       setShowEditModal(false);
       setEditingOrganization(null);
-      setFormData({ name: "", type: "", description: "" });
+      setFormData({ name: "", type: "", description: "", email: "", phone: "", address: "", city: "", country: "Rwanda", website: "" });
     },
     onError: (error) => {
       toast({
@@ -101,7 +107,16 @@ export default function OrganizationsPage() {
   });
 
   const handleSubmit = () => {
-    if (!formData.name || !formData.type) return;
+    // Validate required fields
+    if (!formData.name || !formData.type || !formData.email || !formData.phone || !formData.address || !formData.city || !formData.country) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields marked with *",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (editingOrganization) {
       updateMutation.mutate({ id: editingOrganization.id, data: formData });
     } else {
@@ -113,7 +128,7 @@ export default function OrganizationsPage() {
     setShowCreateModal(false);
     setShowEditModal(false);
     setEditingOrganization(null);
-    setFormData({ name: "", type: "", description: "" });
+    setFormData({ name: "", type: "", description: "", email: "", phone: "", address: "", city: "", country: "Rwanda", website: "" });
   };
 
   const handleEdit = (organization: any) => {
@@ -122,6 +137,12 @@ export default function OrganizationsPage() {
       name: organization.name,
       type: organization.type,
       description: organization.description || "",
+      email: organization.email || "",
+      phone: organization.phone || "",
+      address: organization.address || "",
+      city: organization.city || "",
+      country: organization.country || "Rwanda",
+      website: organization.website || "",
     });
     setShowEditModal(true);
   };
@@ -174,10 +195,11 @@ export default function OrganizationsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="Police">Police</SelectItem>
-              <SelectItem value="Fire">Fire</SelectItem>
-              <SelectItem value="Medical">Medical</SelectItem>
-              <SelectItem value="Emergency">Emergency</SelectItem>
+              <SelectItem value="POLICE">Police</SelectItem>
+              <SelectItem value="FIRE">Fire</SelectItem>
+              <SelectItem value="MEDICAL">Medical</SelectItem>
+              <SelectItem value="DISASTER_MANAGEMENT">Disaster Management</SelectItem>
+              <SelectItem value="OTHER">Other</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -278,21 +300,96 @@ export default function OrganizationsPage() {
           </DialogHeader>
           
           <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Organization Name *</Label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Rwanda National Police"
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label>Type *</Label>
+                <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select organization type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="POLICE">Police</SelectItem>
+                    <SelectItem value="FIRE">Fire</SelectItem>
+                    <SelectItem value="MEDICAL">Medical</SelectItem>
+                    <SelectItem value="DISASTER_MANAGEMENT">Disaster Management</SelectItem>
+                    <SelectItem value="OTHER">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Email *</Label>
+                <Input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="contact@organization.gov.rw"
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label>Phone *</Label>
+                <Input
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="+250 788 123 456"
+                  required
+                />
+              </div>
+            </div>
+
             <div>
-              <Label>Organization Name</Label>
+              <Label>Address *</Label>
               <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Rwanda National Police"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                placeholder="e.g., Kigali, Rwanda"
+                required
               />
             </div>
-            
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>City *</Label>
+                <Input
+                  value={formData.city}
+                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                  placeholder="e.g., Kigali"
+                  required
+                />
+              </div>
+              
+              <div>
+                <Label>Country *</Label>
+                <Input
+                  value={formData.country}
+                  onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                  placeholder="e.g., Rwanda"
+                  required
+                />
+              </div>
+            </div>
+
             <div>
-              <Label>Type</Label>
+              <Label>Website</Label>
               <Input
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                placeholder="e.g., Police, Fire, Medical"
+                type="url"
+                value={formData.website}
+                onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                placeholder="https://organization.gov.rw"
               />
             </div>
             
@@ -313,7 +410,7 @@ export default function OrganizationsPage() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={!formData.name || !formData.type || createMutation.isPending || updateMutation.isPending}
+              disabled={!formData.name || !formData.type || !formData.email || !formData.phone || !formData.address || !formData.city || !formData.country || createMutation.isPending || updateMutation.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
               {editingOrganization 

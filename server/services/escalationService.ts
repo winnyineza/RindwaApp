@@ -82,8 +82,8 @@ export class EscalationService {
    * Manual escalation of incident
    */
   async escalateIncident(
-    incidentId: number, 
-    escalatedBy: number, 
+    incidentId: string, 
+    escalatedBy: string, 
     reason: string,
     targetLevel?: number
   ): Promise<any> {
