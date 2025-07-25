@@ -66,10 +66,10 @@ export const Header = ({ title, subtitle }: HeaderProps) => {
   };
 
   return (
-    <header className="bg-background shadow-sm border-b border-border px-6 py-4">
+    <header className="bg-card shadow-sm border-b border-border px-6 py-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">{title || t('dashboard')}</h2>
+          <h2 className="text-2xl font-bold text-card-foreground">{title || t('dashboard')}</h2>
           <div className="text-muted-foreground whitespace-pre-line">{subtitle || t('welcome')}</div>
         </div>
         <div className="flex items-center space-x-4">
@@ -88,19 +88,19 @@ export const Header = ({ title, subtitle }: HeaderProps) => {
             <span>{formatTime(currentTime)} EAT</span>
           </div>
 
-          <Separator orientation="vertical" className="h-6" />
+          <Separator orientation="vertical" className="h-6 bg-border" />
 
           {/* User Profile Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="flex items-center gap-3 hover:bg-accent">
+              <Button variant="ghost" className="flex items-center gap-3 hover:bg-accent text-foreground">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback className="text-sm">
+                  <AvatarFallback className="text-sm bg-muted text-muted-foreground">
                     {user?.firstName?.[0]}{user?.lastName?.[0]}
                   </AvatarFallback>
                 </Avatar>
                 <div className="text-sm text-left">
-                  <p className="font-medium text-base">{user?.firstName} {user?.lastName}</p>
+                  <p className="font-medium text-base text-foreground">{user?.firstName} {user?.lastName}</p>
                   <p className="text-xs text-muted-foreground capitalize">
                     {user?.role?.replace('_', ' ')}
                   </p>

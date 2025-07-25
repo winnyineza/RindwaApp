@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, X, Check, AlertTriangle, Info, Clock, BellRing } from 'lucide-react';
+import { Bell, X, Check, AlertTriangle, Info, Clock, BellRing, Trash2, ExternalLink, Wifi, WifiOff, Loader2, Shield, MapPin, UserPlus, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,48 +14,45 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
+import { useLocation } from 'wouter';
 
 interface Notification {
   id: number;
   userId: number;
-  type: 'info' | 'warning' | 'success' | 'error';
+  type: 'info' | 'warning' | 'success' | 'error' | 'incident_update' | 'emergency_alert' | 'assignment' | 'escalation';
   title: string;
   message: string;
   isRead: boolean;
   createdAt: string;
   actionUrl?: string;
+  incidentId?: number;
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  metadata?: {
+    incidentType?: string;
+    location?: string;
+    assignedUser?: string;
+  };
 }
-
-const getNotificationIcon = (type: Notification['type']) => {
-  switch (type) {
-    case 'warning':
-      return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
-    case 'error':
-      return <X className="h-4 w-4 text-red-500" />;
-    case 'success':
-      return <Check className="h-4 w-4 text-green-500" />;
-    case 'info':
-    default:
-      return <Info className="h-4 w-4 text-blue-500" />;
-  }
-};
 
 export const NotificationCenter = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Fetch notifications
-  const { data: notifications = [], refetch } = useQuery({
+  const { data: notifications = [], refetch, isFetching } = useQuery<Notification[]>({
     queryKey: ['/api/notifications'],
     enabled: !!user,
-    refetchInterval: 30000,
+    refetchInterval: 8000, // Refresh every 8 seconds for timely notifications
   });
 
   // Fetch unread count
-  const { data: unreadNotifications = [] } = useQuery({
+  const { data: unreadNotifications = [] } = useQuery<Notification[]>({
     queryKey: ['/api/notifications/unread'],
     enabled: !!user,
     refetchInterval: 10000,
@@ -113,6 +110,31 @@ export const NotificationCenter = () => {
     },
   });
 
+  // Delete notification mutation
+  const deleteNotificationMutation = useMutation({
+    mutationFn: async (notificationId: number) => {
+      const { apiRequest } = await import('@/lib/queryClient');
+      return apiRequest(`/api/notifications/${notificationId}`, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread'] });
+      toast({
+        title: "Notification deleted",
+        description: "The notification has been deleted.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to delete notification",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Setup WebSocket connection for real-time notifications
   useEffect(() => {
     if (!user) return;
@@ -127,6 +149,7 @@ export const NotificationCenter = () => {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      setIsConnected(true);
       // Authenticate with server
       ws.send(JSON.stringify({
         type: 'authenticate',
@@ -139,17 +162,22 @@ export const NotificationCenter = () => {
         const data = JSON.parse(event.data);
         
         if (data.type === 'new_notification') {
-          // Show toast for new notification
+          // Show toast for new notification with enhanced styling
+          const notification = data.notification;
+          const isPriority = notification.priority === 'high' || notification.priority === 'critical';
+          
           toast({
-            title: data.notification.title,
-            description: data.notification.message,
+            title: notification.title,
+            description: notification.message,
+            variant: isPriority ? "destructive" : "default",
+            duration: isPriority ? 8000 : 4000,
           });
           
           // Refresh notifications
           refetch();
           queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread'] });
-        } else if (data.type === 'notification_read' || data.type === 'all_notifications_read') {
-          // Refresh notifications when marked as read
+        } else if (data.type === 'notification_read' || data.type === 'all_notifications_read' || data.type === 'notification_deleted') {
+          // Refresh notifications when marked as read or deleted
           refetch();
           queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread'] });
         }
@@ -160,10 +188,12 @@ export const NotificationCenter = () => {
 
     ws.onerror = (error) => {
       console.error('WebSocket error:', error);
+      setIsConnected(false);
     };
 
     ws.onclose = () => {
       console.log('WebSocket connection closed');
+      setIsConnected(false);
     };
 
     return () => {
@@ -173,93 +203,250 @@ export const NotificationCenter = () => {
     };
   }, [user, toast, refetch, queryClient]);
 
+  const getNotificationIcon = (type: string) => {
+    const iconClass = "h-4 w-4 flex-shrink-0";
+    switch (type) {
+      case 'success':
+        return <Check className={`${iconClass} text-green-500`} />;
+      case 'warning':
+        return <AlertTriangle className={`${iconClass} text-yellow-500`} />;
+      case 'error':
+        return <X className={`${iconClass} text-red-500`} />;
+      case 'incident_update':
+        return <Shield className={`${iconClass} text-blue-500`} />;
+      case 'emergency_alert':
+        return <AlertCircle className={`${iconClass} text-red-600`} />;
+      case 'assignment':
+        return <UserPlus className={`${iconClass} text-purple-500`} />;
+      case 'escalation':
+        return <AlertTriangle className={`${iconClass} text-orange-500`} />;
+      default:
+        return <Info className={`${iconClass} text-blue-500`} />;
+    }
+  };
+
+  const getPriorityBadge = (priority?: string) => {
+    if (!priority) return null;
+    
+    const variants = {
+      low: { variant: "secondary" as const, text: "LOW", className: "bg-gray-100 text-gray-700" },
+      medium: { variant: "outline" as const, text: "MED", className: "bg-blue-50 text-blue-700 border-blue-200" },
+      high: { variant: "destructive" as const, text: "HIGH", className: "bg-orange-100 text-orange-700" },
+      critical: { variant: "destructive" as const, text: "CRITICAL", className: "bg-red-100 text-red-700 animate-pulse" }
+    };
+
+    const config = variants[priority as keyof typeof variants];
+    if (!config) return null;
+
+    return (
+      <Badge 
+        variant={config.variant} 
+        className={`text-xs font-bold ${config.className}`}
+      >
+        {config.text}
+      </Badge>
+    );
+  };
+
+  const handleNotificationClick = (notification: Notification) => {
+    // Mark as read if not already read
+    if (!notification.isRead) {
+      markAsRead(notification.id);
+    }
+
+    // Navigate based on actionUrl or incidentId
+    if (notification.actionUrl) {
+      navigate(notification.actionUrl);
+      setIsOpen(false);
+    } else if (notification.incidentId) {
+      navigate(`/incidents/${notification.incidentId}`);
+      setIsOpen(false);
+    }
+  };
+
   const markAsRead = (id: number) => {
     markAsReadMutation.mutate(id);
   };
 
-  const markAllAsRead = () => {
-    markAllAsReadMutation.mutate();
+  const deleteNotification = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the notification click
+    deleteNotificationMutation.mutate(id);
   };
+
+  const markAllAsRead = () => {
+    setIsLoading(true);
+    markAllAsReadMutation.mutate(undefined, {
+      onSettled: () => setIsLoading(false)
+    });
+  };
+
+  const isOperationPending = markAsReadMutation.isPending || deleteNotificationMutation.isPending || markAllAsReadMutation.isPending;
 
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="relative p-2">
           <Bell className="h-5 w-5" />
+          
+          {/* Connection Status Indicator */}
+          <div className={`absolute top-0 right-0 w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} title={isConnected ? 'Connected' : 'Disconnected'} />
+          
+          {/* Unread Count Badge */}
           {unreadCount > 0 && (
             <Badge 
               variant="destructive" 
-              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center text-xs p-0"
+              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center text-xs p-0 animate-pulse"
             >
-              {unreadCount}
+              {unreadCount > 99 ? '99+' : unreadCount}
             </Badge>
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="end">
+      <PopoverContent className="w-96 p-0" align="end">
         <Card className="border-0 shadow-lg">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Notifications</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-lg">Notifications</CardTitle>
+                {isConnected ? <Wifi className="h-4 w-4 text-green-500" /> : <WifiOff className="h-4 w-4 text-red-500" />}
+              </div>
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">{unreadCount} new</Badge>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={markAllAsRead}
-                  disabled={unreadCount === 0}
+                  disabled={unreadCount === 0 || isLoading}
+                  className="text-xs"
                 >
-                  Mark all read
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    'Mark all read'
+                  )}
                 </Button>
               </div>
             </div>
           </CardHeader>
           <Separator />
-          <ScrollArea className="h-80">
+          <ScrollArea className="h-96">
             <CardContent className="p-0">
               {notifications.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  <Bell className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                  <p>No notifications</p>
+                <div className="p-8 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="p-3 rounded-full bg-gray-100 dark:bg-gray-800">
+                      <Bell className="h-8 w-8 text-gray-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-gray-900 dark:text-gray-100">No notifications yet</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        You're all caught up! New notifications will appear here.
+                      </p>
+                    </div>
+                    {!isConnected && (
+                      <div className="flex items-center gap-1 text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
+                        <WifiOff className="h-3 w-3" />
+                        Reconnecting...
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
-                notifications.map((notification, index) => (
-                  <div key={notification.id}>
-                    <div className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-800 ${!notification.isRead ? 'bg-blue-50 dark:bg-blue-950/20' : ''}`}>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3 flex-1">
-                          {getNotificationIcon(notification.type)}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-medium text-sm">{notification.title}</h4>
-                              {!notification.isRead && (
-                                <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                <>
+                  {isFetching && (
+                    <div className="flex items-center justify-center py-2 bg-blue-50 dark:bg-blue-950/20">
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      <span className="text-sm text-blue-600">Refreshing...</span>
+                    </div>
+                  )}
+                  {notifications.map((notification, index) => (
+                    <div key={notification.id}>
+                      <div 
+                        className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors ${
+                          !notification.isRead ? 'bg-blue-50 dark:bg-blue-950/20 border-l-4 border-blue-500' : ''
+                        } ${isOperationPending ? 'opacity-50' : ''}`}
+                        onClick={() => handleNotificationClick(notification)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            {getNotificationIcon(notification.type)}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <h4 className="font-medium text-sm truncate">{notification.title}</h4>
+                                {!notification.isRead && (
+                                  <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0" />
+                                )}
+                                {getPriorityBadge(notification.priority)}
+                              </div>
+                              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 line-clamp-2">
+                                {notification.message}
+                              </p>
+                              
+                              {/* Metadata display */}
+                              {notification.metadata && (
+                                <div className="flex flex-wrap gap-2 mb-2">
+                                  {notification.metadata.location && (
+                                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                                      <MapPin className="h-3 w-3" />
+                                      {notification.metadata.location}
+                                    </div>
+                                  )}
+                                  {notification.metadata.incidentType && (
+                                    <Badge variant="outline" className="text-xs">
+                                      {notification.metadata.incidentType}
+                                    </Badge>
+                                  )}
+                                </div>
                               )}
-                            </div>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{notification.message}</p>
-                            <div className="flex items-center gap-2 text-xs text-gray-500">
-                              <Clock className="h-3 w-3" />
-                              {notification.createdAt ? formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true }) : 'Just now'}
+                              
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <Clock className="h-3 w-3" />
+                                {notification.createdAt ? formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true }) : 'Just now'}
+                                {(notification.actionUrl || notification.incidentId) && (
+                                  <div className="flex items-center gap-1 text-blue-500">
+                                    <ExternalLink className="h-3 w-3" />
+                                    <span>Click to view</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {!notification.isRead && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {!notification.isRead && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  markAsRead(notification.id);
+                                }}
+                                className="h-7 w-7 p-0 hover:bg-green-100 hover:text-green-600"
+                                disabled={isOperationPending}
+                                title="Mark as read"
+                              >
+                                <Check className="h-3 w-3" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => markAsRead(notification.id)}
-                              className="h-6 w-6 p-0"
+                              onClick={(e) => deleteNotification(notification.id, e)}
+                              className="h-7 w-7 p-0 hover:bg-red-100 hover:text-red-600"
+                              disabled={isOperationPending}
+                              title="Delete notification"
                             >
-                              <Check className="h-3 w-3" />
+                              <Trash2 className="h-3 w-3" />
                             </Button>
-                          )}
+                          </div>
                         </div>
                       </div>
+                      {index < notifications.length - 1 && <Separator />}
                     </div>
-                    {index < notifications.length - 1 && <Separator />}
-                  </div>
-                ))
+                  ))}
+                </>
               )}
             </CardContent>
           </ScrollArea>

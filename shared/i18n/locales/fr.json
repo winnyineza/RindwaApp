@@ -33,6 +33,7 @@
   "navigation": {
     "dashboard": "Tableau de bord",
     "incidents": "Incidents",
+    "incidentHistory": "Historique des Incidents",
     "reports": "Rapports",
     "users": "Utilisateurs",
     "settings": "Paramètres",

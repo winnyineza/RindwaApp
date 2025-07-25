@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import sgMail from '@sendgrid/mail';
+import { Request } from 'express';
 
 // Resend configuration (primary email service)
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -17,6 +18,33 @@ if (SENDGRID_API_KEY) {
 } 
 if (!RESEND_API_KEY && !SENDGRID_API_KEY) {
   console.warn("No email service configured. Email functionality will be disabled.");
+}
+
+/**
+ * Determine the correct base URL for the frontend based on environment
+ */
+export function getFrontendUrl(req?: Request): string {
+  // 1. Check for explicit environment variable first
+  if (process.env.FRONTEND_URL) {
+    return process.env.FRONTEND_URL;
+  }
+  
+  // 2. Try to determine from request headers (for dynamic deployment environments)
+  if (req) {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    
+    if (host) {
+      // For development, if we detect localhost, use the correct port
+      if (host.includes('localhost') || host.includes('127.0.0.1')) {
+        return `${protocol}://localhost:5173`;
+      }
+      return `${protocol}://${host}`;
+    }
+  }
+  
+  // 3. Default fallback for development (using correct Vite port)
+  return 'http://localhost:5173';
 }
 
 interface EmailParams {
@@ -121,9 +149,11 @@ export function generateInvitationEmail(
   role: string,
   organizationName?: string,
   stationName?: string,
-  token?: string
+  token?: string,
+  baseUrl?: string
 ): { subject: string; html: string; text: string } {
-  const invitationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/accept-invitation/${token}`;
+  const frontendUrl = baseUrl || getFrontendUrl();
+  const invitationUrl = `${frontendUrl}/accept-invitation/${token}`;
   
   const subject = `Invitation to join Rindwa Emergency Management Platform`;
   
@@ -156,7 +186,31 @@ Rindwa Emergency Management Team
     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
     .header { background: #dc2626; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
     .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
-    .button { display: inline-block; background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+    .button { 
+      display: inline-block !important; 
+      background: #dc2626 !important; 
+      background-color: #dc2626 !important;
+      color: #ffffff !important; 
+      padding: 12px 24px !important; 
+      text-decoration: none !important; 
+      border-radius: 6px !important; 
+      margin: 20px 0 !important; 
+      font-weight: bold !important; 
+      font-size: 16px !important; 
+      border: none !important;
+      text-align: center !important;
+      font-family: Arial, sans-serif !important;
+    }
+    .button:hover { background: #b91c1c !important; color: #ffffff !important; }
+    .button:visited { color: #ffffff !important; }
+    .button:active { color: #ffffff !important; }
+    .button:link { color: #ffffff !important; }
+    /* Force white text in all email clients */
+    a.button { color: #ffffff !important; }
+    a.button:link { color: #ffffff !important; }
+    a.button:visited { color: #ffffff !important; }
+    a.button:hover { color: #ffffff !important; }
+    a.button:active { color: #ffffff !important; }
     .details { background: white; padding: 15px; border-radius: 6px; margin: 20px 0; }
     .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
   </style>

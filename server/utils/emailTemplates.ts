@@ -34,9 +34,31 @@ export function generateCitizenWelcomeEmail(userData: WelcomeEmailData): { subje
           .header h1 { margin: 0; font-size: 28px; font-weight: bold; }
           .content { padding: 30px; }
           .welcome-message { background: #FEF2F2; border-left: 4px solid #DC2626; padding: 20px; margin: 20px 0; border-radius: 6px; }
-          .features { background: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0; }
-          .feature-item { display: flex; align-items: center; margin: 10px 0; }
-          .feature-icon { background: #DC2626; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-weight: bold; }
+          .features { background: #F3F4F6; padding: 25px; border-radius: 8px; margin: 20px 0; }
+          .feature-item { 
+            display: flex; 
+            align-items: flex-start; 
+            margin: 15px 0; 
+            padding: 8px 0; 
+          }
+          .feature-icon { 
+            background: #DC2626; 
+            color: white; 
+            width: 40px; 
+            height: 40px; 
+            border-radius: 50%; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            margin-right: 15px; 
+            font-size: 18px; 
+            flex-shrink: 0;
+            margin-top: 2px;
+          }
+          .feature-content {
+            flex: 1;
+            line-height: 1.5;
+          }
           .cta-button { background: #DC2626; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 20px 0; }
           .emergency-numbers { background: #FEF3C7; border: 2px solid #F59E0B; padding: 20px; border-radius: 8px; margin: 20px 0; }
           .footer { background: #1F2937; color: #9CA3AF; padding: 20px; text-align: center; font-size: 14px; }
@@ -65,35 +87,35 @@ export function generateCitizenWelcomeEmail(userData: WelcomeEmailData): { subje
               
               <div class="feature-item">
                 <div class="feature-icon">🚨</div>
-                <div>
+                <div class="feature-content">
                   <strong>Emergency Alerts:</strong> Send instant alerts to emergency services with your location
                 </div>
               </div>
               
               <div class="feature-item">
                 <div class="feature-icon">📱</div>
-                <div>
+                <div class="feature-content">
                   <strong>Report Incidents:</strong> Easily report emergencies and incidents in your community
                 </div>
               </div>
               
               <div class="feature-item">
                 <div class="feature-icon">📍</div>
-                <div>
+                <div class="feature-content">
                   <strong>Location Tracking:</strong> Your precise location is automatically shared with responders
                 </div>
               </div>
               
               <div class="feature-item">
                 <div class="feature-icon">🔔</div>
-                <div>
+                <div class="feature-content">
                   <strong>Real-time Updates:</strong> Get updates on incidents and emergency responses in real-time
                 </div>
               </div>
               
               <div class="feature-item">
                 <div class="feature-icon">👥</div>
-                <div>
+                <div class="feature-content">
                   <strong>Community Safety:</strong> Help make your community safer by reporting and tracking incidents
                 </div>
               </div>
@@ -215,9 +237,31 @@ export function generateAdminWelcomeEmail(userData: WelcomeEmailData): { subject
           .content { padding: 30px; }
           .welcome-message { background: #FEF2F2; border-left: 4px solid #DC2626; padding: 20px; margin: 20px 0; border-radius: 6px; }
           .role-info { background: #EFF6FF; border-left: 4px solid #3B82F6; padding: 20px; margin: 20px 0; border-radius: 6px; }
-          .capabilities { background: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0; }
-          .capability-item { display: flex; align-items: center; margin: 10px 0; }
-          .capability-icon { background: #DC2626; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-weight: bold; }
+          .capabilities { background: #F3F4F6; padding: 25px; border-radius: 8px; margin: 20px 0; }
+          .capability-item { 
+            display: flex; 
+            align-items: flex-start; 
+            margin: 15px 0; 
+            padding: 8px 0; 
+          }
+          .capability-icon { 
+            background: #DC2626; 
+            color: white; 
+            width: 40px; 
+            height: 40px; 
+            border-radius: 50%; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            margin-right: 15px; 
+            font-size: 18px; 
+            flex-shrink: 0;
+            margin-top: 2px;
+          }
+          .capability-content {
+            flex: 1;
+            line-height: 1.5;
+          }
           .cta-button { background: #DC2626; color: white; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 20px 0; }
           .important-info { background: #FEF3C7; border: 2px solid #F59E0B; padding: 20px; border-radius: 8px; margin: 20px 0; }
           .footer { background: #1F2937; color: #9CA3AF; padding: 20px; text-align: center; font-size: 14px; }
@@ -254,42 +298,42 @@ export function generateAdminWelcomeEmail(userData: WelcomeEmailData): { subject
               
               <div class="capability-item">
                 <div class="capability-icon">📊</div>
-                <div>
+                <div class="capability-content">
                   <strong>Dashboard Access:</strong> Monitor incidents, analytics, and system performance
                 </div>
               </div>
               
               <div class="capability-item">
                 <div class="capability-icon">🚨</div>
-                <div>
+                <div class="capability-content">
                   <strong>Incident Management:</strong> Assign, track, and resolve emergency incidents
                 </div>
               </div>
               
               <div class="capability-item">
                 <div class="capability-icon">👥</div>
-                <div>
+                <div class="capability-content">
                   <strong>Team Coordination:</strong> Collaborate with team members and manage assignments
                 </div>
               </div>
               
               <div class="capability-item">
                 <div class="capability-icon">📱</div>
-                <div>
+                <div class="capability-content">
                   <strong>Real-time Notifications:</strong> Receive instant alerts for new incidents
                 </div>
               </div>
               
               <div class="capability-item">
                 <div class="capability-icon">📈</div>
-                <div>
+                <div class="capability-content">
                   <strong>Analytics & Reports:</strong> Generate insights to improve emergency response
                 </div>
               </div>
               
               <div class="capability-item">
                 <div class="capability-icon">🔐</div>
-                <div>
+                <div class="capability-content">
                   <strong>User Management:</strong> ${role.includes('admin') ? 'Invite and manage team members' : 'Update your profile and preferences'}
                 </div>
               </div>

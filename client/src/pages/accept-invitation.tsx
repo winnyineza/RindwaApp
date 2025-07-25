@@ -88,41 +88,44 @@ export default function AcceptInvitationPage() {
   };
 
   const getRoleBadge = (role: string | undefined) => {
-    if (!role) return <Badge>Unknown Role</Badge>;
+    if (!role) return <Badge variant="secondary">Unknown Role</Badge>;
     
-    const roleColors = {
-      super_admin: "bg-blue-100 text-blue-800",
-      station_admin: "bg-green-100 text-green-800",
-      station_staff: "bg-yellow-100 text-yellow-800",
+    const roleConfig = {
+      super_admin: { variant: "default" as const, label: "Super Admin" },
+      main_admin: { variant: "destructive" as const, label: "Main Admin" },
+      station_admin: { variant: "secondary" as const, label: "Station Admin" },
+      station_staff: { variant: "outline" as const, label: "Station Staff" },
     };
     
+    const config = roleConfig[role as keyof typeof roleConfig] || { variant: "secondary" as const, label: role.replace('_', ' ') };
+    
     return (
-      <Badge className={roleColors[role as keyof typeof roleColors]}>
-        {role.replace('_', ' ')}
+      <Badge variant={config.variant} className="capitalize">
+        {config.label}
       </Badge>
     );
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
 
   if (invitationError || !invitation) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              <XCircle className="w-16 h-16 text-red-600" />
+              <XCircle className="w-16 h-16 text-destructive" />
             </div>
-            <CardTitle className="text-2xl font-bold text-red-600">Invalid Invitation</CardTitle>
+            <CardTitle className="text-2xl font-bold text-destructive">Invalid Invitation</CardTitle>
           </CardHeader>
           <CardContent className="text-center">
-            <p className="text-gray-600 mb-4">
+            <p className="text-muted-foreground mb-4">
               This invitation link is invalid, expired, or has already been used.
             </p>
             <Button onClick={() => setLocation("/login")} className="w-full">
@@ -135,35 +138,41 @@ export default function AcceptInvitationPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-red-600 rounded-lg flex items-center justify-center">
-              <Shield className="w-8 h-8 text-white" />
+            <div className="w-16 h-16 bg-primary rounded-lg flex items-center justify-center">
+              <Shield className="w-8 h-8 text-primary-foreground" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold text-gray-900">Complete Your Account</CardTitle>
+          <CardTitle className="text-2xl font-bold">Complete Your Account</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-            <h3 className="font-semibold text-blue-900 mb-2">Invitation Details</h3>
-            <p className="text-sm text-blue-800">
-              <strong>Email:</strong> {invitation.email}
-            </p>
-            <p className="text-sm text-blue-800 flex items-center gap-2">
-              <strong>Role:</strong> {getRoleBadge(invitation.role)}
-            </p>
-            {invitation.organizationName && (
-              <p className="text-sm text-blue-800">
-                <strong>Organization:</strong> {invitation.organizationName}
+          <div className="mb-6 p-4 bg-muted rounded-lg">
+            <h3 className="font-semibold mb-2">Invitation Details</h3>
+            <div className="space-y-2 text-sm">
+              <p className="flex items-center justify-between">
+                <span className="text-muted-foreground">Email:</span>
+                <span className="font-medium">{invitation.email}</span>
               </p>
-            )}
-            {invitation.stationName && (
-              <p className="text-sm text-blue-800">
-                <strong>Station:</strong> {invitation.stationName}
+              <p className="flex items-center justify-between">
+                <span className="text-muted-foreground">Role:</span>
+                {getRoleBadge(invitation.role)}
               </p>
-            )}
+              {invitation.organizationName && (
+                <p className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Organization:</span>
+                  <span className="font-medium">{invitation.organizationName}</span>
+                </p>
+              )}
+              {invitation.stationName && (
+                <p className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Station:</span>
+                  <span className="font-medium">{invitation.stationName}</span>
+                </p>
+              )}
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -175,7 +184,7 @@ export default function AcceptInvitationPage() {
             )}
 
             <div className="grid grid-cols-2 gap-4">
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
                 <Input
                   id="firstName"
@@ -183,9 +192,10 @@ export default function AcceptInvitationPage() {
                   onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                   placeholder="Enter your first name"
                   required
+                  className="focus-visible:ring-primary"
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name</Label>
                 <Input
                   id="lastName"
@@ -193,11 +203,12 @@ export default function AcceptInvitationPage() {
                   onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   placeholder="Enter your last name"
                   required
+                  className="focus-visible:ring-primary"
                 />
               </div>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="phone">Phone Number</Label>
               <Input
                 id="phone"
@@ -205,10 +216,11 @@ export default function AcceptInvitationPage() {
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 placeholder="Enter your phone number"
                 required
+                className="focus-visible:ring-primary"
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
@@ -217,10 +229,11 @@ export default function AcceptInvitationPage() {
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 placeholder="Create a password"
                 required
+                className="focus-visible:ring-primary"
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="confirmPassword">Confirm Password</Label>
               <Input
                 id="confirmPassword"
@@ -229,12 +242,13 @@ export default function AcceptInvitationPage() {
                 onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                 placeholder="Confirm your password"
                 required
+                className="focus-visible:ring-primary"
               />
             </div>
 
             <Button 
               type="submit" 
-              className="w-full bg-red-600 hover:bg-red-700"
+              className="w-full"
               disabled={acceptInvitationMutation.isPending}
             >
               {acceptInvitationMutation.isPending ? "Creating Account..." : "Accept Invitation"}

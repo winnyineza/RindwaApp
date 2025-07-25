@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Users, Edit, Mail, Trash2, ArrowRight } from "lucide-react";
+import { Plus, Users, Edit, Mail, Trash2, ArrowRight, Building2, MapPin } from "lucide-react";
 import { getUsers, getOrganizations, getStations, migrateUser } from "@/lib/api";
 
 import { useAuth } from "@/hooks/useAuth";
@@ -57,6 +57,7 @@ export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("all");
   const [filterOrg, setFilterOrg] = useState("all");
+  const [filterStation, setFilterStation] = useState("all");
   const [migrationData, setMigrationData] = useState({
     stationId: "",
   });
@@ -65,38 +66,100 @@ export default function UsersPage() {
     queryKey: ["/api/users"],
     queryFn: () => getUsers(),
     enabled: !!currentUser,
-    refetchInterval: 30000, // Refetch every 30 seconds for real-time updates
+    refetchInterval: 5000, // Refetch every 5 seconds for real-time updates
     refetchOnWindowFocus: true, // Refetch when window gains focus
   });
 
-  // Filter users based on search and filters
-  const filteredUsers = users?.filter((user: any) => {
-    // Exclude main admin users
-    if (user.role === 'main_admin') return false;
-    
-    // Search filter
-    if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase();
-      const firstName = user.firstName || '';
-      const lastName = user.lastName || '';
-      const email = user.email || '';
-      const phone = user.phone || '';
+  // Filter and group users alphabetically with organization/station separation
+  const filteredAndGroupedUsers = useMemo(() => {
+    // First filter users
+    const filtered = users?.filter((user: any) => {
+      // Exclude main admin users
+      if (user.role === 'main_admin') return false;
       
-      const nameMatch = `${firstName} ${lastName}`.toLowerCase().includes(searchLower);
-      const emailMatch = email.toLowerCase().includes(searchLower);
-      const phoneMatch = phone.toLowerCase().includes(searchLower);
+      // Search filter
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        const firstName = user.firstName || '';
+        const lastName = user.lastName || '';
+        const email = user.email || '';
+        const phone = user.phone || '';
+        
+        const nameMatch = `${firstName} ${lastName}`.toLowerCase().includes(searchLower);
+        const emailMatch = email.toLowerCase().includes(searchLower);
+        const phoneMatch = phone.toLowerCase().includes(searchLower);
+        
+        if (!nameMatch && !emailMatch && !phoneMatch) return false;
+      }
       
-      if (!nameMatch && !emailMatch && !phoneMatch) return false;
+      // Role filter
+      if (filterRole !== "all" && user.role !== filterRole) return false;
+      
+      // Organization filter (for main admins)
+      if (currentUser?.role === 'main_admin' && filterOrg !== "all" && user.organisationId?.toString() !== filterOrg) return false;
+      
+      // Station filter (for super admins)
+      if (currentUser?.role === 'super_admin' && filterStation !== "all" && user.stationId?.toString() !== filterStation) return false;
+      
+      return true;
+    }) || [];
+
+    // Group by organization for main admins, by station for super admins, otherwise just alphabetically
+    if (currentUser?.role === 'main_admin') {
+      const grouped = filtered.reduce((acc: any, user: any) => {
+        const orgName = user.organizationName || 'Unassigned';
+        if (!acc[orgName]) {
+          acc[orgName] = [];
+        }
+        acc[orgName].push(user);
+        return acc;
+      }, {});
+
+      // Sort organizations alphabetically and users within each organization
+      Object.keys(grouped).forEach(orgName => {
+        grouped[orgName].sort((a: any, b: any) => {
+          const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+          const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+      });
+
+      return grouped;
+    } else if (currentUser?.role === 'super_admin') {
+      const grouped = filtered.reduce((acc: any, user: any) => {
+        const stationName = user.stationName || 'Unassigned';
+        if (!acc[stationName]) {
+          acc[stationName] = [];
+        }
+        acc[stationName].push(user);
+        return acc;
+      }, {});
+
+      // Sort stations alphabetically and users within each station
+      Object.keys(grouped).forEach(stationName => {
+        grouped[stationName].sort((a: any, b: any) => {
+          const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+          const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+      });
+
+      return grouped;
+    } else {
+      // Just sort alphabetically for other roles
+      filtered.sort((a: any, b: any) => {
+        const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+        const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+      return { 'All Users': filtered };
     }
-    
-    // Role filter
-    if (filterRole !== "all" && user.role !== filterRole) return false;
-    
-    // Organization filter
-          if (filterOrg !== "all" && user.organisationId?.toString() !== filterOrg) return false;
-    
-    return true;
-  });
+  }, [users, searchTerm, filterRole, filterOrg, filterStation, currentUser?.role]);
+
+  // Flattened users for count
+  const filteredUsers = useMemo(() => {
+    return Object.values(filteredAndGroupedUsers).flat();
+  }, [filteredAndGroupedUsers]);
 
   const { data: organizations } = useQuery({
     queryKey: ["/api/organizations"],
@@ -206,18 +269,18 @@ export default function UsersPage() {
   });
 
   const getRoleBadge = (role: string) => {
-    if (!role) return <Badge className="bg-gray-100 text-gray-800">Unknown</Badge>;
+    if (!role) return <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">Unknown</Badge>;
     
     const roleColors = {
-      main_admin: "bg-purple-100 text-purple-800",
-      super_admin: "bg-blue-100 text-blue-800",
-      station_admin: "bg-green-100 text-green-800",
-      station_staff: "bg-yellow-100 text-yellow-800",
-      citizen: "bg-gray-100 text-gray-800",
+      main_admin: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+      super_admin: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+      station_admin: "bg-green-500/20 text-green-400 border-green-500/30",
+      station_staff: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+      citizen: "bg-gray-500/20 text-gray-400 border-gray-500/30",
     };
     
     return (
-      <Badge className={roleColors[role as keyof typeof roleColors] || "bg-gray-100 text-gray-800"}>
+      <Badge className={roleColors[role as keyof typeof roleColors] || "bg-gray-500/20 text-gray-400 border-gray-500/30"}>
         {role.replace('_', ' ')}
       </Badge>
     );
@@ -298,13 +361,32 @@ export default function UsersPage() {
   };
 
   return (
-    <DashboardLayout title="Users" subtitle="Manage system users">
+    <DashboardLayout title="Dashboard" subtitle="Welcome to Rindwa Admin">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+          {currentUser?.role === 'main_admin' 
+            ? 'All Users Management' 
+            : currentUser?.role === 'super_admin' 
+              ? 'Organization Users Management' 
+              : currentUser?.role === 'station_admin' 
+                ? 'Station Users Management' 
+                : 'Users Management'
+          }
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          {currentUser?.role === 'main_admin' 
+            ? 'Manage users across all organizations' 
+            : currentUser?.role === 'super_admin' 
+              ? 'Manage users across organization stations' 
+              : currentUser?.role === 'station_admin' 
+                ? 'Manage users within your station' 
+                : 'Manage system users'
+          }
+        </p>
+      </div>
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h3 className="text-lg font-semibold">All Users</h3>
-            <p className="text-sm text-gray-600">Create and manage user accounts</p>
-          </div>
+                <div className="flex justify-between items-center">
+          <div></div>
           <div className="flex gap-2">
             <Button onClick={() => setShowInviteModal(true)} className="bg-blue-600 hover:bg-blue-700">
               <Mail className="w-4 h-4 mr-2" />
@@ -320,7 +402,7 @@ export default function UsersPage() {
         </div>
 
         {/* Search and Filter Section */}
-        <Card>
+        <Card className="bg-card border">
           <CardContent className="pt-6">
             <div className="flex flex-col sm:flex-row gap-4 mb-6">
               <div className="flex-1">
@@ -344,29 +426,60 @@ export default function UsersPage() {
                     <SelectItem value="citizen">Citizen</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={filterOrg} onValueChange={setFilterOrg}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="All Organizations" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Organizations</SelectItem>
-                    {organizations?.map((org: any) => (
-                      <SelectItem key={org.id} value={org.id.toString()}>
-                        {org.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {currentUser?.role === 'main_admin' && (
+                  <Select value={filterOrg} onValueChange={setFilterOrg}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="All Organizations" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Organizations</SelectItem>
+                      {organizations?.map((org: any) => (
+                        <SelectItem key={org.id} value={org.id.toString()}>
+                          {org.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {currentUser?.role === 'super_admin' && (
+                  <Select value={filterStation} onValueChange={setFilterStation}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="All Stations" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Stations</SelectItem>
+                      {stations?.map((station: any) => (
+                        <SelectItem key={station.id} value={station.id.toString()}>
+                          {station.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-card border">
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Users className="w-5 h-5" />
-              <span>Users</span>
+                          <CardTitle className="flex items-center space-x-2 text-foreground">
+              <Users className="w-5 h-5 text-blue-400" />
+              <span>
+                {currentUser?.role === 'main_admin' 
+                  ? 'Users' 
+                  : currentUser?.role === 'super_admin' 
+                    ? 'Organization Station Users' 
+                    : currentUser?.role === 'station_admin' 
+                      ? 'Station Users' 
+                      : 'Users'
+                }
+                {filteredUsers?.length > 0 && (
+                  <Badge variant="outline" className="ml-2 bg-slate-700 text-slate-300 border-slate-600">
+                    {filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'}
+                  </Badge>
+                )}
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -380,81 +493,126 @@ export default function UsersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Organization</TableHead>
-                    <TableHead>Station</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Actions</TableHead>
+                                    <TableHead className="font-semibold">Name</TableHead>
+                <TableHead className="font-semibold">Email</TableHead>
+                <TableHead className="font-semibold">Phone</TableHead>
+                <TableHead className="font-semibold">Role</TableHead>
+                <TableHead className="font-semibold">Organization</TableHead>
+                <TableHead className="font-semibold">Station</TableHead>
+                <TableHead className="font-semibold">Status</TableHead>
+                <TableHead className="font-semibold">Created</TableHead>
+                <TableHead className="font-semibold">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredUsers?.map((user: any) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium">
-                        {user.firstName} {user.lastName}
-                      </TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>{user.phone || "No phone"}</TableCell>
-                      <TableCell>{getRoleBadge(user.role)}</TableCell>
-                      <TableCell>
-                        {user.organizationName || "Not assigned"}
-                      </TableCell>
-                      <TableCell>
-                        {user.stationName || "Not assigned"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={user.isActive ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
-                          {user.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {formatDate(user.createdAt || user.created_at)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            title="Edit user"
-                            onClick={() => handleEditUser(user)}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          {/* Only show migration button for super admins viewing station_admin/station_staff */}
-                          {currentUser?.role === 'super_admin' && ['station_admin', 'station_staff'].includes(user.role) && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              title={t('migrateUser')}
-                              onClick={() => handleMigrateUser(user)}
-                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            >
-                              <ArrowRight className="w-4 h-4" />
-                            </Button>
-                          )}
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            title="Delete user"
-                            onClick={() => handleDeleteUser(user)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {Object.entries(filteredAndGroupedUsers)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([groupName, users]) => (
+                      <React.Fragment key={groupName}>
+                        {/* Organization/Station Header for Main Admin and Super Admin */}
+                        {(currentUser?.role === 'main_admin' || currentUser?.role === 'super_admin') && (
+                                              <TableRow className="bg-muted/50 hover:bg-muted border-b">
+                      <TableCell colSpan={9} className="font-semibold text-foreground py-3">
+                              <div className="flex items-center space-x-2">
+                                {currentUser?.role === 'main_admin' ? (
+                                  <>
+                                    <Building2 className="w-4 h-4 text-blue-400" />
+                                    <span>{groupName}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <MapPin className="w-4 h-4 text-green-400" />
+                                    <span>{groupName}</span>
+                                  </>
+                                )}
+                                <Badge variant="outline" className="ml-2">
+                                  {(users as any[]).length} {(users as any[]).length === 1 ? 'user' : 'users'}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        {/* Users in this organization */}
+                        {(users as any[]).map((user: any) => (
+                          <TableRow key={user.id} className="hover:bg-muted/50">
+                            <TableCell className="font-medium">
+                              <div className="flex items-center space-x-2">
+                                                                  <span className="text-foreground">{user.firstName} {user.lastName}</span>
+                                {user.isInvited && (
+                                  <Badge variant="outline" className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">
+                                    📧 Invited
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>{user.email}</TableCell>
+                            <TableCell>{user.phone || "No phone"}</TableCell>
+                            <TableCell>{getRoleBadge(user.role)}</TableCell>
+                            <TableCell>
+                              {user.organizationName || "Not assigned"}
+                            </TableCell>
+                            <TableCell>
+                              {user.stationName || "Not assigned"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge 
+                                variant={user.isActive ? "default" : "secondary"}
+                                className={user.isActive 
+                                  ? "bg-green-500/20 text-green-400 border-green-500/30" 
+                                  : "bg-gray-500/20 text-gray-400 border-gray-500/30"
+                                }
+                              >
+                                {user.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {formatDate(user.createdAt)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center space-x-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  title="Edit user"
+                                  onClick={() => handleEditUser(user)}
+                                  className="hover:bg-accent"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                {/* Only show migration button for super admins viewing station_admin/station_staff */}
+                                {currentUser?.role === 'super_admin' && ['station_admin', 'station_staff'].includes(user.role) && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    title={t('migrateUser')}
+                                    onClick={() => handleMigrateUser(user)}
+                                    className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/20"
+                                  >
+                                    <ArrowRight className="w-4 h-4" />
+                                  </Button>
+                                )}
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  title="Delete user"
+                                  onClick={() => handleDeleteUser(user)}
+                                  className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </React.Fragment>
+                    ))}
                 </TableBody>
               </Table>
             )}
             
             {filteredUsers?.length === 0 && !isLoading && (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-muted-foreground">
                 No users found. Create your first user.
               </div>
             )}

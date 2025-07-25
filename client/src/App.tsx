@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import OrganizationsPage from "@/pages/organizations";
@@ -20,9 +21,12 @@ import ProfilePage from "@/pages/profile";
 import ReportsPage from "@/pages/reports";
 import AcceptInvitationPage from "@/pages/accept-invitation";
 import IncidentHistoryPage from "@/pages/incident-history";
+import PrivacyPolicyPage from "@/pages/privacy-policy";
+import TermsOfServicePage from "@/pages/terms-of-service";
+import HelpCenterPage from "@/pages/help-center";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
-
+import ResetRedirect from "@/pages/ResetRedirect";
 
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,11 +44,7 @@ function StationsRouter() {
     return <StationsManagementPage />;
   }
   
-  // Station admin also gets management page (for their specific stations)
-  if (user?.role === 'station_admin') {
-    return <StationsManagementPage />;
-  }
-  
+  // Station admin should NOT have access to stations management
   return <NotFound />;
 }
 
@@ -55,6 +55,7 @@ function Router() {
       <Route path="/login" component={LoginPage} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password/:token" component={ResetPassword} />
+      <Route path="/reset-redirect/:token" component={ResetRedirect} />
       <Route path="/accept-invitation/:token" component={AcceptInvitationPage} />
       
       {/* Protected dashboard routes */}
@@ -67,12 +68,14 @@ function Router() {
       <Route path="/users" component={UsersPage} />
       <Route path="/invitations" component={InvitationsPage} />
       <Route path="/analytics" component={AnalyticsPage} />
-
       <Route path="/audit" component={AuditPage} />
       <Route path="/reports" component={ReportsPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/incident-history" component={IncidentHistoryPage} />
       <Route path="/history" component={IncidentHistoryPage} />
+      <Route path="/privacy-policy" component={PrivacyPolicyPage} />
+      <Route path="/terms-of-service" component={TermsOfServicePage} />
+      <Route path="/help-center" component={HelpCenterPage} />
 
       <Route component={NotFound} />
     </Switch>
@@ -82,14 +85,18 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <TooltipProvider>
+      <TooltipProvider>
+        <ThemeProvider>
           <AuthProvider>
-            <Toaster />
-            <Router />
+            <WebSocketProvider>
+              <div className="theme-transition">
+                <Toaster />
+                <Router />
+              </div>
+            </WebSocketProvider>
           </AuthProvider>
-        </TooltipProvider>
-      </ThemeProvider>
+        </ThemeProvider>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

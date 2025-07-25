@@ -183,13 +183,13 @@ export default function AuditPage() {
     <DashboardLayout title="Audit Logs" subtitle="Track all system activities and user actions for security and compliance">
       <div className="space-y-6">
 
-        <Card>
+        <Card className="bg-card border">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5" />
+            <CardTitle className="flex items-center gap-2 text-white">
+              <Eye className="h-5 w-5 text-blue-400" />
               System Activity Log
             </CardTitle>
-            <CardDescription>
+                          <CardDescription className="text-muted-foreground">
               View and filter all system activities and user actions
             </CardDescription>
           </CardHeader>
@@ -245,9 +245,9 @@ export default function AuditPage() {
 
             {filteredLogs.length === 0 ? (
               <div className="text-center py-8">
-                <Eye className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500 dark:text-gray-400">No audit logs found</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500">
+                              <Eye className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground">No audit logs found</p>
+              <p className="text-sm text-muted-foreground">
                   {searchTerm || filterAction !== "all" || filterEntity !== "all"
                     ? "Try adjusting your search or filters"
                     : "System activities will appear here"}

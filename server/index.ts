@@ -90,6 +90,15 @@ app.use((req, res, next) => {
   try {
     const server = await registerRoutes(app);
 
+    // Initialize incident escalation monitoring
+    try {
+      const { IncidentAssignmentService } = await import('./incidentAssignmentService');
+      IncidentAssignmentService.startEscalationMonitoring();
+      logger.info('🚀 Incident escalation monitoring started');
+    } catch (error) {
+      logger.error('Failed to start escalation monitoring:', error);
+    }
+
     // Error handling middleware
     app.use(errorHandler);
 

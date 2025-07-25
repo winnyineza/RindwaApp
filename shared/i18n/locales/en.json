@@ -33,6 +33,7 @@
   "navigation": {
     "dashboard": "Dashboard",
     "incidents": "Incidents",
+    "incidentHistory": "Incident History",
     "reports": "Reports",
     "users": "Users",
     "settings": "Settings",

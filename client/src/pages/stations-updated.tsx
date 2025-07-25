@@ -7,12 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, MapPin, Edit } from "lucide-react";
 import { getStations, createStation, updateStation } from "@/lib/api";
 import { Station } from "@/types";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import ComprehensiveLocationPicker from "@/components/maps/ComprehensiveLocationPicker";
 import { formatDate } from "@/lib/dateUtils";
 
 export default function StationsPage() {
@@ -29,6 +31,8 @@ export default function StationsPage() {
     sector: "",
     organisationId: "", // Added required field for backend
     capacity: "", // Added optional field
+    latitude: "",
+    longitude: "",
   });
 
   const { data: stations, isLoading } = useQuery<Station[]>({
@@ -46,7 +50,7 @@ export default function StationsPage() {
         description: "Station created successfully",
       });
       setShowCreateModal(false);
-      setFormData({ name: "", address: "", contactNumber: "", district: "", sector: "", organisationId: "", capacity: "" });
+      setFormData({ name: "", address: "", contactNumber: "", district: "", sector: "", organisationId: "", capacity: "", latitude: "", longitude: "" });
     },
     onError: (error) => {
       toast({
@@ -67,7 +71,7 @@ export default function StationsPage() {
       });
       setShowEditModal(false);
       setEditingStation(null);
-      setFormData({ name: "", address: "", contactNumber: "", district: "", sector: "", organisationId: "", capacity: "" });
+      setFormData({ name: "", address: "", contactNumber: "", district: "", sector: "", organisationId: "", capacity: "", latitude: "", longitude: "" });
     },
     onError: (error) => {
       toast({
@@ -99,11 +103,20 @@ export default function StationsPage() {
     setShowEditModal(true);
   };
 
+  const handleLocationSelect = (location: { lat: number; lng: number; address: string; formattedAddress?: string }) => {
+    setFormData({
+      ...formData,
+      latitude: location.lat.toString(),
+      longitude: location.lng.toString(),
+      address: location.formattedAddress || location.address,
+    });
+  };
+
   const handleClose = () => {
     setShowCreateModal(false);
     setShowEditModal(false);
     setEditingStation(null);
-    setFormData({ name: "", region: "", address: "", phone: "", district: "", sector: "" });
+          setFormData({ name: "", address: "", contactNumber: "", district: "", sector: "", organisationId: "", capacity: "", latitude: "", longitude: "" });
   };
 
   const districts = [
@@ -161,7 +174,6 @@ export default function StationsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Region</TableHead>
                     <TableHead>District</TableHead>
                     <TableHead>Sector</TableHead>
                     <TableHead>Phone</TableHead>
@@ -173,7 +185,6 @@ export default function StationsPage() {
                   {stations?.map((station) => (
                     <TableRow key={station.id}>
                       <TableCell className="font-medium">{station.name}</TableCell>
-                      <TableCell>{station.region}</TableCell>
                       <TableCell>{station.district || "Not specified"}</TableCell>
                       <TableCell>{station.sector || "Not specified"}</TableCell>
                       <TableCell>{station.phone || "No phone"}</TableCell>
@@ -217,6 +228,17 @@ export default function StationsPage() {
           </DialogHeader>
           
           <div className="space-y-4">
+            <ComprehensiveLocationPicker
+              onLocationSelect={handleLocationSelect}
+              initialLocation={
+                formData.latitude && formData.longitude ? {
+                  lat: parseFloat(formData.latitude),
+                  lng: parseFloat(formData.longitude),
+                  address: formData.address
+                } : undefined
+              }
+              placeholder="Search for station location (e.g., Remera Police Station, Kigali)"
+            />
             <div>
               <Label>Station Name</Label>
               <Input
@@ -226,22 +248,32 @@ export default function StationsPage() {
               />
             </div>
             
-            <div>
-              <Label>Region</Label>
-              <Input
-                value={formData.region}
-                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                placeholder="e.g., Gasabo District"
-              />
-            </div>
-            
-            <div>
-              <Label>Address</Label>
-              <Input
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Complete address"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>District *</Label>
+                <Select value={formData.district} onValueChange={(value) => setFormData({...formData, district: value})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select district" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["Gasabo", "Kicukiro", "Nyarugenge", "Bugesera", "Gatsibo", "Kayonza", 
+                      "Kirehe", "Ngoma", "Nyagatare", "Rwamagana", "Burera", "Gakenke", 
+                      "Gicumbi", "Musanze", "Rulindo", "Gisagara", "Huye", "Kamonyi", 
+                      "Muhanga", "Nyamagabe", "Nyanza", "Ruhango", "Karongi", "Ngororero", 
+                      "Nyabihu", "Rubavu", "Rusizi", "Rutsiro", "Nyaruguru"].map((district) => (
+                      <SelectItem key={district} value={district}>{district}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Sector</Label>
+                <Input
+                  value={formData.sector}
+                  onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
+                  placeholder="Enter sector name"
+                />
+              </div>
             </div>
             
             <div>
@@ -289,7 +321,7 @@ export default function StationsPage() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={!formData.name || !formData.region || createMutation.isPending}
+              disabled={!formData.name || !formData.district || createMutation.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
               {createMutation.isPending ? "Creating..." : "Create Station"}
@@ -317,23 +349,33 @@ export default function StationsPage() {
               />
             </div>
             
+                      <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Region</Label>
+              <Label>District *</Label>
+              <Select value={formData.district} onValueChange={(value) => setFormData({...formData, district: value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select district" />
+                </SelectTrigger>
+                <SelectContent>
+                  {["Gasabo", "Kicukiro", "Nyarugenge", "Bugesera", "Gatsibo", "Kayonza", 
+                    "Kirehe", "Ngoma", "Nyagatare", "Rwamagana", "Burera", "Gakenke", 
+                    "Gicumbi", "Musanze", "Rulindo", "Gisagara", "Huye", "Kamonyi", 
+                    "Muhanga", "Nyamagabe", "Nyanza", "Ruhango", "Karongi", "Ngororero", 
+                    "Nyabihu", "Rubavu", "Rusizi", "Rutsiro", "Nyaruguru"].map((district) => (
+                    <SelectItem key={district} value={district}>{district}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Sector</Label>
               <Input
-                value={formData.region}
-                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                placeholder="e.g., Gasabo District"
+                value={formData.sector}
+                onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
+                placeholder="Enter sector name"
               />
             </div>
-            
-            <div>
-              <Label>Address</Label>
-              <Input
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Complete address"
-              />
-            </div>
+          </div>
             
             <div>
               <Label>Phone</Label>

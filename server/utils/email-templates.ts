@@ -44,7 +44,7 @@ export const createWelcomeEmail = (userName: string, organizationName: string): 
               
               <p>To get started, simply log in to your account and explore the dashboard.</p>
               
-              <a href="${process.env.FRONTEND_URL || 'http://localhost:5000'}" class="button">Access Dashboard</a>
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}" class="button">Access Dashboard</a>
               
               <p>If you need help getting started, our support team is here to assist you.</p>
               
@@ -72,7 +72,7 @@ export const createWelcomeEmail = (userName: string, organizationName: string): 
       - Monitor Analytics: Track performance and response times
       - Community Engagement: Handle citizen reports and feedback
       
-      To get started, visit: ${process.env.FRONTEND_URL || 'http://localhost:5000'}
+      To get started, visit: ${process.env.FRONTEND_URL || 'http://localhost:5173'}
       
       If you need help getting started, our support team is here to assist you.
       
@@ -132,7 +132,7 @@ export const createIncidentAssignmentEmail = (
               
               <p>Please log in to the platform to view full incident details and begin your response.</p>
               
-              <a href="${process.env.FRONTEND_URL || 'http://localhost:5000'}/incidents/${incidentId}" class="button">View Incident</a>
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/incidents/${incidentId}" class="button">View Incident</a>
               
               <p>Time is critical in emergency response. Please acknowledge receipt and begin your response as soon as possible.</p>
               
@@ -161,7 +161,7 @@ export const createIncidentAssignmentEmail = (
       
       Please log in to the platform to view full incident details and begin your response.
       
-      Visit: ${process.env.FRONTEND_URL || 'http://localhost:5000'}/incidents/${incidentId}
+      Visit: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/incidents/${incidentId}
       
       Time is critical in emergency response. Please acknowledge receipt and begin your response as soon as possible.
       
@@ -172,7 +172,7 @@ export const createIncidentAssignmentEmail = (
 };
 
 export const createPasswordResetEmail = (userName: string, resetToken: string): EmailTemplate => {
-  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/reset-password/${resetToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-redirect/${resetToken}`;
   
   return {
     subject: 'Password Reset Request - Rindwa Platform',
@@ -305,7 +305,7 @@ export const createIncidentUpdateEmail = (
               
               <p>Click below to view the complete incident details:</p>
               
-              <a href="${process.env.FRONTEND_URL || 'http://localhost:5000'}/incidents/${incidentId}" class="button">View Incident</a>
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/incidents/${incidentId}" class="button">View Incident</a>
               
               <p>Stay informed about incident progress and coordinate your response accordingly.</p>
               
@@ -331,7 +331,7 @@ export const createIncidentUpdateEmail = (
       - Updated: ${new Date().toLocaleString()}
       ${notes ? `- Notes: ${notes}` : ''}
       
-      View incident details: ${process.env.FRONTEND_URL || 'http://localhost:5000'}/incidents/${incidentId}
+      View incident details: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/incidents/${incidentId}
       
       Stay informed about incident progress and coordinate your response accordingly.
       

@@ -170,8 +170,8 @@ export default function OrganizationsPage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h3 className="text-lg font-semibold">{t('allOrganizations')}</h3>
-            <p className="text-sm text-gray-600">{t('manageOrganizations')}</p>
+            <h3 className="text-lg font-semibold text-white">{t('allOrganizations')}</h3>
+            <p className="text-sm text-muted-foreground">{t('manageOrganizations')}</p>
           </div>
           <Button onClick={() => setShowCreateModal(true)} className="bg-red-600 hover:bg-red-700">
             <Plus className="w-4 h-4 mr-2" />
@@ -204,10 +204,10 @@ export default function OrganizationsPage() {
           </Select>
         </div>
 
-        <Card>
+        <Card className="bg-card border">
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Building className="w-5 h-5" />
+            <CardTitle className="flex items-center space-x-2 text-white">
+              <Building className="w-5 h-5 text-blue-400" />
               <span>Organizations</span>
             </CardTitle>
           </CardHeader>
@@ -215,7 +215,7 @@ export default function OrganizationsPage() {
             {isLoading ? (
               <div className="animate-pulse space-y-4">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-16 bg-gray-200 rounded"></div>
+                  <div key={i} className="h-16 bg-muted rounded"></div>
                 ))}
               </div>
             ) : (
@@ -233,13 +233,13 @@ export default function OrganizationsPage() {
                 <TableBody>
                   {filteredOrganizations?.map((org: any) => (
                     <TableRow key={org.id}>
-                      <TableCell className="font-medium">{org.name}</TableCell>
-                      <TableCell>{org.type}</TableCell>
-                      <TableCell>{org.description || "No description"}</TableCell>
+                      <TableCell className="font-medium text-white">{org.name}</TableCell>
+                                        <TableCell>{org.type}</TableCell>
+                  <TableCell>{org.description || "No description"}</TableCell>
                       <TableCell>
-                        <Badge className="bg-green-100 text-green-800">Active</Badge>
+                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Active</Badge>
                       </TableCell>
-                      <TableCell>
+                                              <TableCell>
                         {formatDate(org.createdAt || org.created_at)}
                       </TableCell>
                       <TableCell>
@@ -249,6 +249,7 @@ export default function OrganizationsPage() {
                             size="sm" 
                             title="Edit organization"
                             onClick={() => handleEdit(org)}
+                            className="hover:bg-accent"
                           >
                             <Edit className="w-4 h-4 mr-1" />
                             Edit
@@ -256,7 +257,7 @@ export default function OrganizationsPage() {
                           <Button 
                             variant="outline" 
                             size="sm" 
-                            className="text-red-600 hover:text-red-700"
+                            className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
                             title="Delete organization"
                             onClick={() => handleDelete(org)}
                           >
@@ -272,12 +273,12 @@ export default function OrganizationsPage() {
             )}
             
             {filteredOrganizations?.length === 0 && organizations?.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-muted-foreground">
                 No organizations found. Create your first organization.
               </div>
             )}
             {filteredOrganizations?.length === 0 && organizations?.length > 0 && (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-muted-foreground">
                 No organizations match your search criteria.
               </div>
             )}

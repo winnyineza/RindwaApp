@@ -1,6 +1,7 @@
 import { useAuth } from "@/hooks/useAuth";
-import { Sidebar } from "./Sidebar";
+import { AppSidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -16,12 +17,12 @@ export const DashboardLayout = ({ children, title, subtitle }: DashboardLayoutPr
   }
 
   return (
-    <div className="min-h-screen flex bg-background">
-      <Sidebar />
-      <div className="flex-1 ml-64">
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
         <Header title={title} subtitle={subtitle} />
-        <main className="p-6 bg-muted/10">{children}</main>
-      </div>
-    </div>
+        <main className="p-6 bg-background">{children}</main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 };

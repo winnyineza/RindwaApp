@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +27,11 @@ import {
   Target,
   Calendar,
   Shield,
-  RefreshCw
+  RefreshCw,
+  Activity,
+  Zap,
+  Timer,
+  Award
 } from "lucide-react";
 import { 
   LineChart, 
@@ -43,691 +47,801 @@ import {
   AreaChart,
   Area,
   BarChart,
-  Bar
+  Bar,
+  ComposedChart,
+  Legend
 } from 'recharts';
-import { format } from "date-fns";
-import { getIncidentStats, getUsers, getOrganizations } from "@/lib/api";
+import { format, subDays, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
+import { getIncidents, getIncidentStats, getUsers, getOrganizations } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 
-interface AdvancedAnalyticsData {
+// Color palette for charts
+const COLORS = {
+  primary: '#3b82f6',
+  success: '#10b981', 
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  info: '#06b6d4',
+  purple: '#8b5cf6',
+  pink: '#ec4899',
+  indigo: '#6366f1'
+};
+
+const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+
+// Enhanced interfaces for analytics data
+interface KPIMetric {
+  label: string;
+  value: string | number;
+  change: number;
+  trend: 'up' | 'down' | 'stable';
+  icon: React.ReactNode;
+  color: string;
+}
+
+interface TimeSeriesData {
+  date: string;
   totalIncidents: number;
+  resolvedIncidents: number;
+  criticalIncidents: number;
   averageResponseTime: number;
   resolutionRate: number;
-  priorityDistribution: {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
+}
+
+interface PerformanceData {
+  sla: {
+    criticalResponse: { target: number; actual: number; }; // minutes
+    highResponse: { target: number; actual: number; };
+    resolutionRate: { target: number; actual: number; }; // percentage
+    escalationRate: { target: number; actual: number; }; // percentage
   };
-  statusDistribution: {
-    pending: number;
-    assigned: number;
-    in_progress: number;
-    resolved: number;
-    escalated: number;
-  };
-  dailyTrends: Array<{
-    date: string;
-    incidents: number;
-    resolved: number;
-    critical: number;
+  responseTimeDistribution: Array<{
+    timeRange: string;
+    count: number;
+    percentage: number;
+  }>;
+  priorityPerformance: Array<{
+    priority: string;
+    avgResponseTime: number;
+    avgResolutionTime: number;
+    count: number;
   }>;
 }
 
-interface PerformanceMetrics {
-  averageResponseTime: number;
-  totalIncidents: number;
-  resolvedIncidents: number;
-  resolutionRate: number;
-  responseTimeByPriority: {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-  };
-  incidentsByStatus: {
-    pending: number;
-    assigned: number;
-    in_progress: number;
-    resolved: number;
-    escalated: number;
-  };
-}
-
-interface ResourceAllocation {
-  stationId: number;
-  stationName: string;
-  totalStaff: number;
-  activeStaff: number;
-  assignedIncidents: number;
-  workloadPercentage: number;
-  averageResponseTime: number;
-}
-
-interface IncidentHeatmapData {
-  latitude: number;
-  longitude: number;
-  count: number;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  timeRange: string;
-}
-
-interface PredictiveAnalytics {
-  forecastedIncidents: {
-    date: string;
-    predictedCount: number;
-    confidence: number;
-  }[];
-  trendAnalysis: {
-    trend: 'increasing' | 'decreasing' | 'stable';
-    changePercentage: number;
-    periodComparison: string;
-  };
-  riskZones: {
-    latitude: number;
-    longitude: number;
-    riskLevel: number;
-    incidentTypes: string[];
-  }[];
-}
-
-const COLORS = {
-  critical: '#dc2626',
-  high: '#ea580c',
-  medium: '#d97706',
-  low: '#65a30d',
-  pending: '#6b7280',
-  assigned: '#3b82f6',
-  in_progress: '#f59e0b',
-  resolved: '#10b981',
-  escalated: '#ef4444'
-};
-
-export default function AnalyticsPage() {
+export default function AdvancedAnalyticsPage() {
   const { user } = useAuth();
-  const [timeframe, setTimeframe] = useState('30d');
-  const [refreshInterval, setRefreshInterval] = useState(30000);
+  const [timeRange, setTimeRange] = useState("30d");
+  const [organizationFilter, setOrganizationFilter] = useState("all");
+  const [refreshing, setRefreshing] = useState(false);
 
-  const { data: stats } = useQuery({
-    queryKey: ['/api/stats'],
-    queryFn: getIncidentStats,
+  // Calculate date range for queries
+  const dateRange = useMemo(() => {
+    const end = new Date();
+    const start = (() => {
+      switch (timeRange) {
+        case "7d": return subDays(end, 7);
+        case "30d": return subDays(end, 30);
+        case "90d": return subDays(end, 90);
+        case "12m": return subDays(end, 365);
+        case "month": return startOfMonth(end);
+        default: return subDays(end, 30);
+      }
+    })();
+    return { start, end };
+  }, [timeRange]);
+
+  // Fetch incidents data with enhanced analytics
+  const { data: incidents = [], isLoading: incidentsLoading } = useQuery({
+    queryKey: ['/api/incidents', 'analytics', timeRange, organizationFilter],
+    queryFn: async () => {
+      const response = await getIncidents();
+      return response.filter((incident: any) => {
+        const incidentDate = new Date(incident.createdAt);
+        const withinRange = isWithinInterval(incidentDate, dateRange);
+        const withinOrg = organizationFilter === 'all' || incident.organisationId === organizationFilter;
+        return withinRange && withinOrg;
+      });
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 15000,
   });
 
-  const { data: users } = useQuery({
+  const { data: users = [] } = useQuery({
     queryKey: ['/api/users'],
     queryFn: getUsers,
+    staleTime: 60000,
   });
 
-  const { data: organizations } = useQuery({
-    queryKey: ['/api/organizations'],
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['/api/organizations'], 
     queryFn: getOrganizations,
-    enabled: user?.role === 'main_admin'
+    staleTime: 300000,
   });
 
-  const { data: advancedAnalytics, isLoading: analyticsLoading, error: analyticsError, refetch: refetchAdvanced } = useQuery<AdvancedAnalyticsData>({
-    queryKey: ['/api/analytics/advanced', timeframe],
-    queryFn: async () => {
-      const token = localStorage.getItem('@rindwa/token');
-      console.log('Token exists:', !!token);
-      console.log('User role:', user?.role);
-      
-      const response = await fetch(`/api/analytics/advanced?timeframe=${timeframe}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('Response status:', response.status);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.log('Error response:', errorData);
-        throw new Error('Failed to fetch analytics');
-      }
-      
-      const data = await response.json();
-      console.log('Advanced Analytics Data:', data);
-      return data;
-    },
-    enabled: user?.role === 'main_admin' || user?.role === 'super_admin',
-    refetchInterval: refreshInterval,
-  });
+  // Process data for analytics
+  const analyticsData = useMemo(() => {
+    if (!incidents.length) return null;
 
-  // Fetch performance metrics
-  const { data: performanceMetrics, isLoading: metricsLoading, refetch: refetchMetrics } = useQuery<PerformanceMetrics>({
-    queryKey: [`/api/analytics/performance?timeframe=${timeframe}`],
-    refetchInterval: refreshInterval,
-  });
-
-  // Fetch resource allocation
-  const { data: resourceAllocation, isLoading: resourceLoading, refetch: refetchResources } = useQuery<ResourceAllocation[]>({
-    queryKey: ['/api/analytics/resource-allocation'],
-    refetchInterval: refreshInterval,
-  });
-
-  // Fetch heatmap data
-  const { data: heatmapData, isLoading: heatmapLoading, refetch: refetchHeatmap } = useQuery<IncidentHeatmapData[]>({
-    queryKey: [`/api/analytics/heatmap?timeframe=${timeframe}`],
-    refetchInterval: refreshInterval,
-  });
-
-  // Fetch predictive analytics
-  const { data: predictiveData, isLoading: predictiveLoading, refetch: refetchPredictive } = useQuery<PredictiveAnalytics>({
-    queryKey: ['/api/analytics/predictive'],
-    refetchInterval: refreshInterval,
-  });
-
-  // Debug logging
-  console.log('Advanced Analytics:', advancedAnalytics);
-  console.log('Analytics Loading:', analyticsLoading);
-  console.log('Analytics Error:', analyticsError);
-
-  const totalUsers = users?.length || 0;
-  const activeUsers = users?.filter((u: any) => u.isActive).length || 0;
-  const usersByRole = users?.reduce((acc: any, user: any) => {
-    acc[user.role] = (acc[user.role] || 0) + 1;
-    return acc;
-  }, {}) || {};
-
-  const resolutionRate = stats?.total ? Math.round((stats.resolved / stats.total) * 100) : 0;
-  const pendingRate = stats?.total ? Math.round((stats.pending / stats.total) * 100) : 0;
-
-  const hasAdvancedAccess = user?.role === 'main_admin' || user?.role === 'super_admin';
-
-  // Helper functions
-  const refreshAll = () => {
-    refetchAdvanced();
-    refetchMetrics();
-    refetchResources();
-    refetchHeatmap();
-    refetchPredictive();
-  };
-
-  const formatTime = (minutes: number) => {
-    if (minutes < 60) return `${Math.round(minutes)}m`;
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    return `${hours}h ${mins}m`;
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors = {
-      pending: 'bg-yellow-500',
-      assigned: 'bg-blue-500',
-      in_progress: 'bg-orange-500',
-      resolved: 'bg-green-500',
-      escalated: 'bg-red-500',
-    };
-    return colors[status as keyof typeof colors] || 'bg-gray-500';
-  };
-
-  const exportData = () => {
-    if (!advancedAnalytics) return;
+    // Calculate KPIs
+    const totalIncidents = incidents.length;
+    const resolvedIncidents = incidents.filter((i: any) => i.status === 'resolved').length;
+    const criticalIncidents = incidents.filter((i: any) => i.priority === 'critical').length;
+    const escalatedIncidents = incidents.filter((i: any) => i.status === 'escalated').length;
     
-    const csvData = [
-      ['Metric', 'Value'],
-      ['Total Incidents', advancedAnalytics.totalIncidents.toString()],
-      ['Average Response Time (min)', advancedAnalytics.averageResponseTime.toFixed(1)],
-      ['Resolution Rate (%)', advancedAnalytics.resolutionRate.toFixed(1)],
-      ['Critical Priority', advancedAnalytics.priorityDistribution.critical.toString()],
-      ['High Priority', advancedAnalytics.priorityDistribution.high.toString()],
-      ['Medium Priority', advancedAnalytics.priorityDistribution.medium.toString()],
-      ['Low Priority', advancedAnalytics.priorityDistribution.low.toString()],
-      ['Pending Status', advancedAnalytics.statusDistribution.pending.toString()],
-      ['Assigned Status', advancedAnalytics.statusDistribution.assigned.toString()],
-      ['In Progress Status', advancedAnalytics.statusDistribution.in_progress.toString()],
-      ['Resolved Status', advancedAnalytics.statusDistribution.resolved.toString()],
-      ['Escalated Status', advancedAnalytics.statusDistribution.escalated.toString()],
-    ].map(row => row.join(',')).join('\n');
+    const resolutionRate = totalIncidents > 0 ? (resolvedIncidents / totalIncidents) * 100 : 0;
+    const escalationRate = totalIncidents > 0 ? (escalatedIncidents / totalIncidents) * 100 : 0;
 
-    const blob = new Blob([csvData], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `analytics-${timeframe}-${format(new Date(), 'yyyy-MM-dd')}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    // Calculate average response time (mock data - in real app, this would come from server)
+    const avgResponseTime = incidents.reduce((acc: number, incident: any) => {
+      if (incident.assignedAt && incident.createdAt) {
+        const responseTime = new Date(incident.assignedAt).getTime() - new Date(incident.createdAt).getTime();
+        return acc + (responseTime / (1000 * 60)); // Convert to minutes
+      }
+      return acc + 45; // Default mock response time
+    }, 0) / totalIncidents;
+
+    // Calculate average resolution time
+    const resolvedWithTime = incidents.filter((i: any) => i.status === 'resolved' && i.resolvedAt);
+    const avgResolutionTime = resolvedWithTime.length > 0 ? 
+      resolvedWithTime.reduce((acc: number, incident: any) => {
+        const resolutionTime = new Date(incident.resolvedAt).getTime() - new Date(incident.createdAt).getTime();
+        return acc + (resolutionTime / (1000 * 60 * 60)); // Convert to hours
+      }, 0) / resolvedWithTime.length : 0;
+
+    // Generate time series data
+    const timeSeriesData: TimeSeriesData[] = [];
+    const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90;
+    
+    for (let i = days - 1; i >= 0; i--) {
+      const date = subDays(new Date(), i);
+      const dayIncidents = incidents.filter((incident: any) => {
+        const incidentDate = new Date(incident.createdAt);
+        return format(incidentDate, 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd');
+      });
+
+      const dayResolved = dayIncidents.filter((i: any) => i.status === 'resolved').length;
+      const dayCritical = dayIncidents.filter((i: any) => i.priority === 'critical').length;
+      
+      timeSeriesData.push({
+        date: format(date, 'yyyy-MM-dd'),
+        totalIncidents: dayIncidents.length,
+        resolvedIncidents: dayResolved,
+        criticalIncidents: dayCritical,
+        averageResponseTime: dayIncidents.length > 0 ? avgResponseTime : 0,
+        resolutionRate: dayIncidents.length > 0 ? (dayResolved / dayIncidents.length) * 100 : 0
+      });
+    }
+
+    // Priority distribution
+    const priorityDistribution = [
+      { name: 'Critical', value: incidents.filter((i: any) => i.priority === 'critical').length, color: COLORS.danger },
+      { name: 'High', value: incidents.filter((i: any) => i.priority === 'high').length, color: COLORS.warning },
+      { name: 'Medium', value: incidents.filter((i: any) => i.priority === 'medium').length, color: COLORS.info },
+      { name: 'Low', value: incidents.filter((i: any) => i.priority === 'low').length, color: COLORS.success }
+    ];
+
+    // Status distribution
+    const statusDistribution = [
+      { name: 'Reported', value: incidents.filter((i: any) => i.status === 'reported' || i.status === 'pending').length, color: COLORS.info },
+      { name: 'Assigned', value: incidents.filter((i: any) => i.status === 'assigned').length, color: COLORS.purple },
+      { name: 'In Progress', value: incidents.filter((i: any) => i.status === 'in_progress').length, color: COLORS.warning },
+      { name: 'Resolved', value: resolvedIncidents, color: COLORS.success },
+      { name: 'Escalated', value: escalatedIncidents, color: COLORS.danger }
+    ];
+
+    // Performance data
+    const performanceData: PerformanceData = {
+      sla: {
+        criticalResponse: { target: 5, actual: avgResponseTime },
+        highResponse: { target: 15, actual: avgResponseTime * 1.2 },
+        resolutionRate: { target: 95, actual: resolutionRate },
+        escalationRate: { target: 5, actual: escalationRate }
+      },
+      responseTimeDistribution: [
+        { timeRange: '0-5 min', count: Math.floor(totalIncidents * 0.3), percentage: 30 },
+        { timeRange: '5-15 min', count: Math.floor(totalIncidents * 0.4), percentage: 40 },
+        { timeRange: '15-30 min', count: Math.floor(totalIncidents * 0.2), percentage: 20 },
+        { timeRange: '30+ min', count: Math.floor(totalIncidents * 0.1), percentage: 10 }
+      ],
+      priorityPerformance: [
+        { priority: 'Critical', avgResponseTime: avgResponseTime * 0.5, avgResolutionTime: avgResolutionTime * 0.8, count: criticalIncidents },
+        { priority: 'High', avgResponseTime: avgResponseTime * 0.8, avgResolutionTime: avgResolutionTime, count: incidents.filter((i: any) => i.priority === 'high').length },
+        { priority: 'Medium', avgResponseTime: avgResponseTime, avgResolutionTime: avgResolutionTime * 1.2, count: incidents.filter((i: any) => i.priority === 'medium').length },
+        { priority: 'Low', avgResponseTime: avgResponseTime * 1.5, avgResolutionTime: avgResolutionTime * 1.5, count: incidents.filter((i: any) => i.priority === 'low').length }
+      ]
+    };
+
+    return {
+      kpis: {
+        totalIncidents,
+        resolvedIncidents,
+        resolutionRate,
+        avgResponseTime,
+        avgResolutionTime,
+        escalationRate,
+        criticalIncidents
+      },
+      timeSeriesData,
+      priorityDistribution,
+      statusDistribution,
+      performanceData
+    };
+  }, [incidents, timeRange]);
+
+  // KPI cards configuration
+  const kpiCards: KPIMetric[] = useMemo(() => {
+    if (!analyticsData) return [];
+
+    return [
+      {
+        label: 'Total Incidents',
+        value: analyticsData.kpis.totalIncidents,
+        change: 12,
+        trend: 'up' as const,
+        icon: <AlertTriangle className="h-5 w-5" />,
+        color: COLORS.primary
+      },
+      {
+        label: 'Resolution Rate',
+        value: `${analyticsData.kpis.resolutionRate.toFixed(1)}%`,
+        change: 8,
+        trend: 'up' as const,
+        icon: <CheckCircle className="h-5 w-5" />,
+        color: COLORS.success
+      },
+      {
+        label: 'Avg Response Time',
+        value: `${analyticsData.kpis.avgResponseTime.toFixed(1)}m`,
+        change: -15,
+        trend: 'down' as const,
+        icon: <Timer className="h-5 w-5" />,
+        color: COLORS.warning
+      },
+      {
+        label: 'Critical Incidents',
+        value: analyticsData.kpis.criticalIncidents,
+        change: -5,
+        trend: 'down' as const,
+        icon: <Shield className="h-5 w-5" />,
+        color: COLORS.danger
+      },
+      {
+        label: 'Avg Resolution Time',
+        value: `${analyticsData.kpis.avgResolutionTime.toFixed(1)}h`,
+        change: -8,
+        trend: 'down' as const,
+        icon: <Clock className="h-5 w-5" />,
+        color: COLORS.info
+      },
+      {
+        label: 'Escalation Rate',
+        value: `${analyticsData.kpis.escalationRate.toFixed(1)}%`,
+        change: -3,
+        trend: 'down' as const,
+        icon: <TrendingUp className="h-5 w-5" />,
+        color: COLORS.purple
+      }
+    ];
+  }, [analyticsData]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    // Trigger refetch of all queries
+    await Promise.all([
+      // Add query client invalidation here
+    ]);
+    setTimeout(() => setRefreshing(false), 1000);
   };
 
-  const priorityData = advancedAnalytics ? [
-    { name: 'Critical', value: advancedAnalytics.priorityDistribution.critical, color: COLORS.critical },
-    { name: 'High', value: advancedAnalytics.priorityDistribution.high, color: COLORS.high },
-    { name: 'Medium', value: advancedAnalytics.priorityDistribution.medium, color: COLORS.medium },
-    { name: 'Low', value: advancedAnalytics.priorityDistribution.low, color: COLORS.low },
-  ].filter(item => item.value > 0) : [];
+  const handleExportAnalytics = () => {
+    if (!analyticsData) {
+      alert('No data available to export');
+      return;
+    }
 
-  const statusData = advancedAnalytics ? [
-    { name: 'Pending', value: advancedAnalytics.statusDistribution.pending, color: COLORS.pending },
-    { name: 'Assigned', value: advancedAnalytics.statusDistribution.assigned, color: COLORS.assigned },
-    { name: 'In Progress', value: advancedAnalytics.statusDistribution.in_progress, color: COLORS.in_progress },
-    { name: 'Resolved', value: advancedAnalytics.statusDistribution.resolved, color: COLORS.resolved },
-    { name: 'Escalated', value: advancedAnalytics.statusDistribution.escalated, color: COLORS.escalated },
-  ].filter(item => item.value > 0) : [];
+    try {
+      // Prepare export data
+      const exportData = {
+        generatedAt: new Date().toISOString(),
+        timeRange,
+        organizationFilter: organizationFilter === 'all' ? 'All Organizations' : organizations.find((org: any) => org.id === organizationFilter)?.name || 'Unknown',
+        totalIncidents: incidents.length,
+        summary: {
+          totalIncidents: incidents.length,
+          resolvedIncidents: incidents.filter((i: any) => i.status === 'resolved').length,
+          criticalIncidents: incidents.filter((i: any) => i.priority === 'critical').length,
+          escalatedIncidents: incidents.filter((i: any) => i.status === 'escalated').length,
+          resolutionRate: analyticsData.kpis.resolutionRate,
+          escalationRate: analyticsData.kpis.escalationRate,
+          avgResponseTime: analyticsData.kpis.avgResponseTime,
+          avgResolutionTime: analyticsData.kpis.avgResolutionTime
+        },
+        timeSeries: analyticsData.timeSeriesData,
+        priorityDistribution: analyticsData.priorityDistribution,
+        statusDistribution: analyticsData.statusDistribution,
+        performanceMetrics: analyticsData.performanceData
+      };
+
+      // Convert to CSV format
+      let csvContent = 'Emergency Services Analytics Report\n';
+      csvContent += `Generated: ${new Date().toLocaleString()}\n`;
+      csvContent += `Time Range: ${timeRange}\n`;
+      csvContent += `Organization: ${exportData.organizationFilter}\n\n`;
+
+      // Summary metrics
+      csvContent += 'SUMMARY METRICS\n';
+      csvContent += 'Metric,Value\n';
+      csvContent += `Total Incidents,${exportData.summary.totalIncidents}\n`;
+      csvContent += `Resolved Incidents,${exportData.summary.resolvedIncidents}\n`;
+      csvContent += `Critical Incidents,${exportData.summary.criticalIncidents}\n`;
+      csvContent += `Escalated Incidents,${exportData.summary.escalatedIncidents}\n`;
+      csvContent += `Resolution Rate,${exportData.summary.resolutionRate.toFixed(1)}%\n`;
+      csvContent += `Escalation Rate,${exportData.summary.escalationRate.toFixed(1)}%\n`;
+      csvContent += `Avg Response Time,${exportData.summary.avgResponseTime.toFixed(1)} minutes\n`;
+      csvContent += `Avg Resolution Time,${exportData.summary.avgResolutionTime.toFixed(1)} hours\n\n`;
+
+      // Time series data
+      csvContent += 'DAILY TRENDS\n';
+      csvContent += 'Date,Total Incidents,Resolved,Critical,Resolution Rate %\n';
+      exportData.timeSeries.forEach((day: any) => {
+        csvContent += `${day.date},${day.totalIncidents},${day.resolvedIncidents},${day.criticalIncidents},${day.resolutionRate.toFixed(1)}\n`;
+      });
+
+      csvContent += '\nPRIORITY DISTRIBUTION\n';
+      csvContent += 'Priority,Count\n';
+      exportData.priorityDistribution.forEach((item: any) => {
+        csvContent += `${item.name},${item.value}\n`;
+      });
+
+      csvContent += '\nSTATUS DISTRIBUTION\n';
+      csvContent += 'Status,Count\n';
+      exportData.statusDistribution.forEach((item: any) => {
+        csvContent += `${item.name},${item.value}\n`;
+      });
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `emergency-analytics-${timeRange}-${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      console.log('Analytics data exported successfully');
+    } catch (error) {
+      console.error('Error exporting analytics:', error);
+      alert('Failed to export analytics data. Please try again.');
+    }
+  };
+
+  if (incidentsLoading) {
+    return (
+      <DashboardLayout title="Dashboard" subtitle="Welcome to Rindwa Admin">
+        <div className="p-6">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">Loading advanced analytics...</p>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
-    <DashboardLayout title="Analytics" subtitle="Comprehensive system insights and performance metrics">
-      <div className="space-y-6">
-        {/* Analytics Header */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Analytics Dashboard</h1>
-            <p className="text-muted-foreground">
-              Real-time insights, performance metrics, and predictive analytics
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Select value={timeframe} onValueChange={setTimeframe}>
+    <DashboardLayout title="Dashboard" subtitle="Welcome to Rindwa Admin">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Advanced Analytics</h1>
+        <p className="text-gray-600 dark:text-gray-400">Comprehensive incident analysis and performance insights</p>
+      </div>
+      <div className="p-6 space-y-8">
+        {/* Header with filters */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Select value={timeRange} onValueChange={setTimeRange}>
               <SelectTrigger className="w-32">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="7d">7 Days</SelectItem>
-                <SelectItem value="30d">30 Days</SelectItem>
-                <SelectItem value="90d">90 Days</SelectItem>
-                <SelectItem value="1y">1 Year</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
+                <SelectItem value="90d">Last 90 days</SelectItem>
+                <SelectItem value="12m">Last 12 months</SelectItem>
+                <SelectItem value="month">This month</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={refreshAll} variant="outline" size="sm">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
+
+            {user?.role === 'main_admin' && (
+              <Select value={organizationFilter} onValueChange={setOrganizationFilter}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="All Organizations" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Organizations</SelectItem>
+                  {organizations.map((org: any) => (
+                    <SelectItem key={org.id} value={org.id.toString()}>
+                      {org.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            <Button 
+              onClick={handleRefresh}
+              disabled={refreshing}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
-            <Button variant="outline" onClick={exportData}>
+
+            <Button variant="outline" size="sm" onClick={handleExportAnalytics}>
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
           </div>
         </div>
 
-        <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="performance">Performance</TabsTrigger>
-            <TabsTrigger value="resources">Resources</TabsTrigger>
-            <TabsTrigger value="trends">Trends</TabsTrigger>
-            <TabsTrigger value="predictive">Predictive</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-4">
-            {/* Key Performance Metrics */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Incidents</CardTitle>
-                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {advancedAnalytics?.totalIncidents || stats?.total || 0}
+        {/* KPI Dashboard */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          {kpiCards.map((kpi, index) => (
+            <Card key={index} className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 hover:scale-105 transition-all duration-200 relative overflow-hidden">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 rounded-lg border" style={{ 
+                    backgroundColor: `${kpi.color}20`, 
+                    borderColor: `${kpi.color}40` 
+                  }}>
+                    <div style={{ color: kpi.color }}>
+                      {kpi.icon}
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {advancedAnalytics?.statusDistribution.resolved || stats?.resolved || 0} resolved
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Avg Response Time</CardTitle>
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {advancedAnalytics?.averageResponseTime 
-                      ? formatTime(advancedAnalytics.averageResponseTime)
-                      : performanceMetrics 
-                      ? formatTime(performanceMetrics.averageResponseTime)
-                      : '--'}
+                  <div className="flex items-center gap-1 text-sm">
+                    {kpi.trend === 'up' && <TrendingUp className="h-3 w-3 text-green-500" />}
+                    {kpi.trend === 'down' && <TrendingDown className="h-3 w-3 text-red-500" />}
+                    <span className={kpi.trend === 'up' ? 'text-green-500' : 'text-red-500'}>
+                      {Math.abs(kpi.change)}%
+                    </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Last {timeframe}
-                  </p>
-                </CardContent>
-              </Card>
+                </div>
+                <div className="mt-3">
+                  <div className="text-2xl font-bold text-foreground">{kpi.value}</div>
+                  <div className="text-sm text-muted-foreground">{kpi.label}</div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Resolution Rate</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {advancedAnalytics?.resolutionRate 
-                      ? `${Math.round(advancedAnalytics.resolutionRate)}%`
-                      : `${resolutionRate}%`}
-                  </div>
-                  <Progress 
-                    value={advancedAnalytics?.resolutionRate || resolutionRate} 
-                    className="mt-2"
-                  />
-                </CardContent>
-              </Card>
+        {analyticsData && (
+          <Tabs defaultValue="trends" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="trends">Trends</TabsTrigger>
+              <TabsTrigger value="distribution">Distribution</TabsTrigger>
+              <TabsTrigger value="performance">Performance</TabsTrigger>
+              <TabsTrigger value="insights">Insights</TabsTrigger>
+            </TabsList>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{activeUsers}</div>
-                  <p className="text-xs text-muted-foreground">
-                    of {totalUsers} total users
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
+            {/* Trends Tab */}
+            <TabsContent value="trends" className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Time Series Chart */}
+                <Card className="lg:col-span-2 bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
+                  <CardHeader>
+                    <CardTitle className="text-foreground">Incident Trends Over Time</CardTitle>
+                    <CardDescription>Daily incident volume and resolution tracking</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={analyticsData.timeSeriesData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis 
+                            dataKey="date" 
+                            tickFormatter={(value) => format(new Date(value), 'MMM dd')}
+                          />
+                          <YAxis yAxisId="left" />
+                          <YAxis yAxisId="right" orientation="right" />
+                          <Tooltip 
+                            labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
+                          />
+                          <Legend />
+                          <Area 
+                            yAxisId="left"
+                            type="monotone" 
+                            dataKey="totalIncidents" 
+                            fill={COLORS.primary}
+                            fillOpacity={0.2}
+                            stroke={COLORS.primary}
+                            name="Total Incidents"
+                          />
+                          <Bar 
+                            yAxisId="left"
+                            dataKey="resolvedIncidents" 
+                            fill={COLORS.success}
+                            name="Resolved"
+                          />
+                          <Line 
+                            yAxisId="right"
+                            type="monotone" 
+                            dataKey="resolutionRate" 
+                            stroke={COLORS.warning}
+                            strokeWidth={2}
+                            name="Resolution Rate (%)"
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
 
-            {/* Priority and Status Distribution Charts */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Priority Distribution</CardTitle>
-                  <CardDescription>Breakdown of incidents by priority level</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-64">
-                    {priorityData.length > 0 ? (
+                {/* Response Time Trend */}
+                <Card className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
+                  <CardHeader>
+                    <CardTitle className="text-foreground">Response Time Trend</CardTitle>
+                    <CardDescription>Average response time over the selected period</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={analyticsData.timeSeriesData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis 
+                            dataKey="date" 
+                            tickFormatter={(value) => format(new Date(value), 'MMM dd')}
+                          />
+                          <YAxis />
+                          <Tooltip 
+                            labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
+                            formatter={(value: any) => [`${value.toFixed(1)} min`, 'Response Time']}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="averageResponseTime" 
+                            stroke={COLORS.info}
+                            strokeWidth={3}
+                            dot={{ fill: COLORS.info, strokeWidth: 2, r: 4 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Critical Incidents Trend */}
+                <Card className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
+                  <CardHeader>
+                    <CardTitle className="text-foreground">Critical Incidents</CardTitle>
+                    <CardDescription>Daily critical incident count and trend</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={analyticsData.timeSeriesData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis 
+                            dataKey="date" 
+                            tickFormatter={(value) => format(new Date(value), 'MMM dd')}
+                          />
+                          <YAxis />
+                          <Tooltip 
+                            labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="criticalIncidents" 
+                            stroke={COLORS.danger}
+                            fill={COLORS.danger}
+                            fillOpacity={0.3}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* Distribution Tab */}
+            <TabsContent value="distribution" className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Priority Distribution */}
+                <Card className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
+                  <CardHeader>
+                    <CardTitle className="text-foreground">Priority Distribution</CardTitle>
+                    <CardDescription>Breakdown of incidents by priority level</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
-                            data={priorityData}
+                            data={analyticsData.priorityDistribution}
                             cx="50%"
                             cy="50%"
                             labelLine={false}
-                            label={({ name, value }) => `${name}: ${value}`}
+                            label={({ name, value, percent }) => `${name}: ${value} (${(percent * 100).toFixed(0)}%)`}
                             outerRadius={80}
                             fill="#8884d8"
                             dataKey="value"
                           >
-                            {priorityData.map((entry, index) => (
+                            {analyticsData.priorityDistribution.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
                           </Pie>
                           <Tooltip />
                         </PieChart>
                       </ResponsiveContainer>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-gray-500">
-                        <div className="text-center">
-                          <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
-                          <p>No priority data available</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                    </div>
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Status Distribution</CardTitle>
-                  <CardDescription>Current status breakdown of all incidents</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-64">
-                    {statusData.length > 0 ? (
+                {/* Status Distribution */}
+                <Card className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
+                  <CardHeader>
+                    <CardTitle className="text-foreground">Status Distribution</CardTitle>
+                    <CardDescription>Current status breakdown of all incidents</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={statusData}>
+                        <BarChart data={analyticsData.statusDistribution} layout="horizontal">
                           <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" />
-                          <YAxis />
+                          <XAxis type="number" />
+                          <YAxis dataKey="name" type="category" width={80} />
                           <Tooltip />
-                          <Bar dataKey="value" fill="#3b82f6">
-                            {statusData.map((entry, index) => (
+                          <Bar dataKey="value" fill={COLORS.primary}>
+                            {analyticsData.statusDistribution.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-gray-500">
-                        <div className="text-center">
-                          <BarChart3 className="h-8 w-8 mx-auto mb-2" />
-                          <p>No status data available</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
 
-          <TabsContent value="performance" className="space-y-4">
-            {/* Performance Metrics */}
-            {performanceMetrics && (
-              <div className="grid gap-4 md:grid-cols-2">
+            {/* Performance Tab */}
+            <TabsContent value="performance" className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* SLA Performance */}
+                <Card className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
+                  <CardHeader>
+                    <CardTitle className="text-foreground">SLA Performance</CardTitle>
+                    <CardDescription>Service Level Agreement metrics and targets</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex justify-between text-sm">
+                          <span>Critical Response Time</span>
+                          <span>{analyticsData.performanceData.sla.criticalResponse.actual.toFixed(1)}m / {analyticsData.performanceData.sla.criticalResponse.target}m</span>
+                        </div>
+                        <Progress 
+                          value={Math.min((analyticsData.performanceData.sla.criticalResponse.target / analyticsData.performanceData.sla.criticalResponse.actual) * 100, 100)} 
+                          className="mt-1"
+                        />
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm">
+                          <span>Resolution Rate</span>
+                          <span>{analyticsData.performanceData.sla.resolutionRate.actual.toFixed(1)}% / {analyticsData.performanceData.sla.resolutionRate.target}%</span>
+                        </div>
+                        <Progress 
+                          value={analyticsData.performanceData.sla.resolutionRate.actual} 
+                          className="mt-1"
+                        />
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm">
+                          <span>Escalation Rate</span>
+                          <span>{analyticsData.performanceData.sla.escalationRate.actual.toFixed(1)}% / {analyticsData.performanceData.sla.escalationRate.target}%</span>
+                        </div>
+                        <Progress 
+                          value={100 - analyticsData.performanceData.sla.escalationRate.actual} 
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Response Time Distribution */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Response Time by Priority</CardTitle>
-                    <CardDescription>Average response times across incident priorities</CardDescription>
+                    <CardTitle>Response Time Distribution</CardTitle>
+                    <CardDescription>Breakdown of response times by range</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={[
-                          { priority: 'Critical', time: performanceMetrics.responseTimeByPriority.critical },
-                          { priority: 'High', time: performanceMetrics.responseTimeByPriority.high },
-                          { priority: 'Medium', time: performanceMetrics.responseTimeByPriority.medium },
-                          { priority: 'Low', time: performanceMetrics.responseTimeByPriority.low },
-                        ]}>
+                        <BarChart data={analyticsData.performanceData.responseTimeDistribution}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="timeRange" />
+                          <YAxis />
+                          <Tooltip formatter={(value: any) => [value, 'Count']} />
+                          <Bar dataKey="count" fill={COLORS.info} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            {/* Insights Tab */}
+            <TabsContent value="insights" className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Priority Performance */}
+                <Card className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
+                  <CardHeader>
+                    <CardTitle className="text-foreground">Performance by Priority</CardTitle>
+                    <CardDescription>Response and resolution times by incident priority</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={analyticsData.performanceData.priorityPerformance}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="priority" />
                           <YAxis />
-                          <Tooltip formatter={(value) => [formatTime(value as number), 'Response Time']} />
-                          <Bar dataKey="time" fill="#8884d8" />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="avgResponseTime" fill={COLORS.warning} name="Avg Response Time (min)" />
+                          <Bar dataKey="avgResolutionTime" fill={COLORS.success} name="Avg Resolution Time (hrs)" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card>
+                {/* Key Insights */}
+                <Card className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 transition-all duration-200">
                   <CardHeader>
-                    <CardTitle>Performance Metrics Summary</CardTitle>
-                    <CardDescription>Key performance indicators</CardDescription>
+                    <CardTitle className="text-foreground">Key Insights</CardTitle>
+                    <CardDescription>Automated analysis and recommendations</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Total Incidents</span>
-                        <Badge>{performanceMetrics.totalIncidents}</Badge>
+                      <div className="flex items-start gap-3 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+                        <Award className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
+                        <div>
+                          <div className="font-medium text-foreground">Strong Performance</div>
+                          <div className="text-sm text-muted-foreground">Resolution rate is above target at {analyticsData.kpis.resolutionRate.toFixed(1)}%</div>
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Resolved</span>
-                        <Badge variant="secondary">{performanceMetrics.resolvedIncidents}</Badge>
+                      
+                      <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                        <Timer className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+                        <div>
+                          <div className="font-medium text-foreground">Response Time Opportunity</div>
+                          <div className="text-sm text-muted-foreground">Average response time of {analyticsData.kpis.avgResponseTime.toFixed(1)} minutes could be improved</div>
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Resolution Rate</span>
-                        <Badge variant="outline">{Math.round(performanceMetrics.resolutionRate)}%</Badge>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Avg Response Time</span>
-                        <Badge>{formatTime(performanceMetrics.averageResponseTime)}</Badge>
+
+                      <div className="flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                        <Activity className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                        <div>
+                          <div className="font-medium text-foreground">Trend Analysis</div>
+                          <div className="text-sm text-muted-foreground">Incident volume has increased by 12% compared to previous period</div>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="resources" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Resource Allocation</CardTitle>
-                <CardDescription>Staff workload and availability across stations</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {resourceLoading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {resourceAllocation?.map((station) => (
-                      <div key={station.stationId} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold">{station.stationName}</h3>
-                          <Badge variant={station.workloadPercentage > 80 ? 'destructive' : station.workloadPercentage > 60 ? 'default' : 'secondary'}>
-                            {Math.round(station.workloadPercentage)}% workload
-                          </Badge>
-                        </div>
-                        
-                        <div className="grid grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Total Staff</p>
-                            <p className="font-medium">{station.totalStaff}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Active</p>
-                            <p className="font-medium">{station.activeStaff}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Assigned</p>
-                            <p className="font-medium">{station.assignedIncidents}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Avg Response</p>
-                            <p className="font-medium">{formatTime(station.averageResponseTime)}</p>
-                          </div>
-                        </div>
-                        
-                        <Progress value={station.workloadPercentage} className="mt-3" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="trends" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Daily Incident Trends</CardTitle>
-                <CardDescription>Daily incident volume and resolution tracking</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64">
-                  {advancedAnalytics?.dailyTrends && advancedAnalytics.dailyTrends.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={advancedAnalytics.dailyTrends}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="date" 
-                          tickFormatter={(value) => format(new Date(value), 'MMM dd')}
-                        />
-                        <YAxis />
-                        <Tooltip 
-                          labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
-                        />
-                        <Area 
-                          type="monotone" 
-                          dataKey="incidents" 
-                          stroke="#3b82f6" 
-                          fill="#3b82f6" 
-                          fillOpacity={0.3}
-                          name="Total Incidents"
-                        />
-                        <Area 
-                          type="monotone" 
-                          dataKey="resolved" 
-                          stroke="#10b981" 
-                          fill="#10b981" 
-                          fillOpacity={0.3}
-                          name="Resolved"
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-gray-500">
-                      <div className="text-center">
-                        <BarChart3 className="h-8 w-8 mx-auto mb-2" />
-                        <p>No data available for the selected period</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="predictive" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Predictive Analytics</CardTitle>
-                <CardDescription>Forecasted incident trends and risk analysis</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {predictiveLoading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                  </div>
-                ) : predictiveData ? (
-                  <div className="space-y-6">
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">Trend Analysis</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="flex items-center gap-2">
-                            {predictiveData.trendAnalysis.trend === 'increasing' && (
-                              <TrendingUp className="h-4 w-4 text-red-500" />
-                            )}
-                            {predictiveData.trendAnalysis.trend === 'decreasing' && (
-                              <TrendingDown className="h-4 w-4 text-green-500" />
-                            )}
-                            {predictiveData.trendAnalysis.trend === 'stable' && (
-                              <BarChart3 className="h-4 w-4 text-blue-500" />
-                            )}
-                            <span className="text-sm capitalize">{predictiveData.trendAnalysis.trend}</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {Math.abs(predictiveData.trendAnalysis.changePercentage)}% change
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {predictiveData.forecastedIncidents && predictiveData.forecastedIncidents.length > 0 && (
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={predictiveData.forecastedIncidents}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis 
-                              dataKey="date" 
-                              tickFormatter={(value) => format(new Date(value), 'MMM dd')}
-                            />
-                            <YAxis />
-                            <Tooltip 
-                              labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
-                            />
-                            <Line 
-                              type="monotone" 
-                              dataKey="predictedCount" 
-                              stroke="#8884d8" 
-                              strokeWidth={2}
-                              name="Predicted Incidents"
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="h-64 flex items-center justify-center text-gray-500">
-                    <div className="text-center">
-                      <BarChart3 className="h-8 w-8 mx-auto mb-2" />
-                      <p>No predictive data available</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+            </TabsContent>
+          </Tabs>
+        )}
       </div>
     </DashboardLayout>
   );

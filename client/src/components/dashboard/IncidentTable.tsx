@@ -10,11 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Plus, Eye, UserPlus, Edit, Play, CheckCircle, AlertTriangle, Clock, User } from "lucide-react";
 import { getIncidents, assignIncident, updateIncident } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { AssignmentModal } from "./AssignmentModal";
 import { IncidentDetailModal } from "./IncidentDetailModal";
+import { BulkOperationsBar } from "./BulkOperationsBar";
+import { AdvancedSearch } from "../search/AdvancedSearch";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Incident } from "@/types";
@@ -114,6 +117,13 @@ export const IncidentTable = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showResolutionModal, setShowResolutionModal] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
+  
+  // Multi-select state
+  const [selectedIncidents, setSelectedIncidents] = useState<Incident[]>([]);
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  
+  // Advanced search state
+  const [searchFilters, setSearchFilters] = useState<Record<string, any>>({});
 
   const { data: incidents, isLoading } = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
@@ -157,22 +167,189 @@ export const IncidentTable = () => {
     },
   });
 
-  // Filter all station incidents (based on user's role)
+  // Multi-select handlers
+  const handleIncidentSelect = (incident: Incident, checked: boolean) => {
+    if (checked) {
+      setSelectedIncidents(prev => [...prev, incident]);
+    } else {
+      setSelectedIncidents(prev => prev.filter(i => i.id !== incident.id));
+    }
+  };
+
+  const handleSelectAll = () => {
+    setSelectedIncidents([...allStationIncidents]);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIncidents([]);
+    setIsSelectMode(false);
+  };
+
+  const isIncidentSelected = (incidentId: string) => {
+    return selectedIncidents.some(incident => incident.id === incidentId);
+  };
+
+  // Advanced search handler
+  const handleAdvancedSearch = (filters: Record<string, any>) => {
+    setSearchFilters(filters);
+  };
+
+  // Bulk operations handler
+  const handleBulkAction = async (action: string, data?: any) => {
+    const incidentIds = selectedIncidents.map(incident => incident.id);
+    
+    try {
+      const response = await fetch('/api/incidents/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          action,
+          incidentIds,
+          data: {
+            ...data,
+            userId: user?.userId
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Bulk operation failed');
+      }
+
+      // Refresh incidents data
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+
+      // Handle export action differently
+      if (action === 'export') {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `incidents-export-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      }
+
+    } catch (error) {
+      console.error('Bulk operation error:', error);
+      throw error;
+    }
+  };
+
+  // Advanced filtering with all search criteria
   const allStationIncidents = incidents?.filter((incident) => {
-    const matchesSearch = (incident.title || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (incident.description || "").toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || incident.status === statusFilter;
+    // Advanced search filters
+    if (searchFilters.search) {
+      const searchTerm = searchFilters.search.toLowerCase();
+      const matchesSearch = (incident.title || "").toLowerCase().includes(searchTerm) ||
+                           (incident.description || "").toLowerCase().includes(searchTerm) ||
+                           (incident.location?.address || "").toLowerCase().includes(searchTerm) ||
+                           (incident.notes || "").toLowerCase().includes(searchTerm);
+      if (!matchesSearch) return false;
+    }
+
+    // Status filter (multiselect)
+    if (searchFilters.status && searchFilters.status.length > 0) {
+      if (!searchFilters.status.includes(incident.status)) return false;
+    }
+
+    // Priority filter (multiselect)
+    if (searchFilters.priority && searchFilters.priority.length > 0) {
+      if (!searchFilters.priority.includes(incident.priority)) return false;
+    }
+
+    // Type filter (multiselect)
+    if (searchFilters.type && searchFilters.type.length > 0) {
+      if (!searchFilters.type.includes(incident.type)) return false;
+    }
+
+    // Assignment filter
+    if (searchFilters.assignedTo) {
+      const currentUserId = user?.userId || user?.id;
+      switch (searchFilters.assignedTo) {
+        case 'me':
+          if (incident.assignedToId !== currentUserId) return false;
+          break;
+        case 'unassigned':
+          if (incident.assignedToId) return false;
+          break;
+        case 'anyone':
+          // No filter needed
+          break;
+      }
+    }
+
+    // Location filter
+    if (searchFilters.location) {
+      const locationTerm = searchFilters.location.toLowerCase();
+      const matchesLocation = (incident.location?.address || "").toLowerCase().includes(locationTerm);
+      if (!matchesLocation) return false;
+    }
+
+    // Incident ID filter
+    if (searchFilters.incidentId) {
+      const idMatch = incident.id?.toString().includes(searchFilters.incidentId) ||
+                     `INC-${(incident.id || 0).toString().padStart(4, '0')}`.includes(searchFilters.incidentId.toUpperCase());
+      if (!idMatch) return false;
+    }
+
+    // Date range filter
+    if (searchFilters.dateRange) {
+      const incidentDate = new Date(incident.createdAt || '');
+      const now = new Date();
+      
+      switch (searchFilters.dateRange) {
+        case 'today':
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          if (incidentDate < today) return false;
+          break;
+        case 'yesterday':
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          yesterday.setHours(0, 0, 0, 0);
+          const yesterdayEnd = new Date(yesterday);
+          yesterdayEnd.setHours(23, 59, 59, 999);
+          if (incidentDate < yesterday || incidentDate > yesterdayEnd) return false;
+          break;
+        case 'week':
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          if (incidentDate < weekAgo) return false;
+          break;
+        case 'month':
+          const monthAgo = new Date();
+          monthAgo.setMonth(monthAgo.getMonth() - 1);
+          if (incidentDate < monthAgo) return false;
+          break;
+      }
+    }
+
+    // Legacy simple filters (fallback for existing UI)
+    if (searchTerm && !searchFilters.search) {
+      const matchesLegacySearch = (incident.title || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                 (incident.description || "").toLowerCase().includes(searchTerm.toLowerCase());
+      if (!matchesLegacySearch) return false;
+    }
+
+    if (statusFilter !== "all" && !searchFilters.status) {
+      if (incident.status !== statusFilter) return false;
+    }
     
     // Role-based filtering for station incidents
     if (user?.role === 'station_staff' || user?.role === 'station_admin') {
       const stationMatches = incident.stationId === user.stationId;
       console.log(`Filtering incident ${incident.id}: stationId=${incident.stationId}, userStationId=${user.stationId}, matches=${stationMatches}`);
-      return matchesSearch && matchesStatus && stationMatches;
+      return stationMatches;
     } else if (user?.role === 'super_admin') {
-      return matchesSearch && matchesStatus && incident.organisationId === user.organisationId;
+      return incident.organisationId === user.organisationId;
     }
     
-    return matchesSearch && matchesStatus;
+    return true;
   }) || [];
 
   console.log('=== FILTERING RESULTS ===');
@@ -373,41 +550,65 @@ export const IncidentTable = () => {
 
   return (
     <>
+      {/* Bulk Operations Bar */}
+      <BulkOperationsBar
+        selectedIncidents={selectedIncidents}
+        allIncidents={allStationIncidents}
+        onClearSelection={handleClearSelection}
+        onBulkAction={handleBulkAction}
+        onSelectAll={handleSelectAll}
+      />
+      
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg font-semibold text-gray-900">
+            <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">
               {user?.role === 'station_staff' ? 'Station Incident Management' : 'Recent Incidents'}
             </CardTitle>
             <div className="flex items-center space-x-3">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search incidents..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-64"
-                />
-              </div>
-              
-              {/* Filter */}
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="All Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="reported">Reported</SelectItem>
-                  <SelectItem value="assigned">Assigned</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="escalated">Escalated</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* Legacy search fallback for compatibility - will be hidden when advanced search is active */}
+              {Object.keys(searchFilters).length === 0 && (
+                <>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <Input
+                      placeholder="Search incidents..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 w-64"
+                    />
+                  </div>
+                  
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="reported">Reported</SelectItem>
+                      <SelectItem value="assigned">Assigned</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="resolved">Resolved</SelectItem>
+                      <SelectItem value="escalated">Escalated</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
             </div>
           </div>
         </CardHeader>
+        
+        {/* Advanced Search */}
+        <div className="px-6 pb-4">
+          <AdvancedSearch
+            onSearch={handleAdvancedSearch}
+            initialFilters={searchFilters}
+            placeholder="Search incidents, descriptions, locations..."
+            showSavedSearches={true}
+            showGlobalSearch={true}
+          />
+        </div>
+        
         <CardContent>
 
           
@@ -518,6 +719,19 @@ export const IncidentTable = () => {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10">
+              <Checkbox
+                checked={selectedIncidents.length === incidents.length && incidents.length > 0}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    setSelectedIncidents([...incidents]);
+                    setIsSelectMode(true);
+                  } else {
+                    setSelectedIncidents([]);
+                  }
+                }}
+              />
+            </TableHead>
             <TableHead>Incident ID</TableHead>
             <TableHead>Title</TableHead>
             <TableHead>Location</TableHead>
@@ -529,7 +743,22 @@ export const IncidentTable = () => {
         </TableHeader>
         <TableBody>
           {incidents.map((incident) => (
-            <TableRow key={incident.id} className="hover:bg-gray-50">
+            <TableRow 
+              key={incident.id} 
+              className={cn(
+                "hover:bg-gray-50",
+                isIncidentSelected(incident.id) && "bg-blue-50 border-blue-200"
+              )}
+            >
+              <TableCell>
+                <Checkbox
+                  checked={isIncidentSelected(incident.id)}
+                  onCheckedChange={(checked) => {
+                    handleIncidentSelect(incident, checked as boolean);
+                    if (checked) setIsSelectMode(true);
+                  }}
+                />
+              </TableCell>
               <TableCell>
                 <div className="text-sm font-medium text-gray-900">
                   #INC-{(incident.id || 0).toString().padStart(4, '0')}

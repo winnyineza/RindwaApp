@@ -281,7 +281,7 @@ export class DatabaseStorage implements IStorage {
 
   async getOrganization(id: string): Promise<Organization | undefined> {
     const organizations = await sequelize.query(
-      'SELECT * FROM organisations WHERE id = :id',
+      'SELECT * FROM organizations WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.SELECT
@@ -292,7 +292,7 @@ export class DatabaseStorage implements IStorage {
 
   async getAllOrganizations(): Promise<Organization[]> {
     const organizations = await sequelize.query(
-      'SELECT * FROM organisations ORDER BY created_at DESC',
+      'SELECT * FROM organizations ORDER BY created_at DESC',
       {
         type: QueryTypes.SELECT
       }
@@ -302,7 +302,7 @@ export class DatabaseStorage implements IStorage {
 
   async createOrganization(org: InsertOrganization): Promise<Organization> {
     const result = await sequelize.query(
-      'INSERT INTO organisations (name, type, description, created_at) VALUES (:name, :type, :description, NOW()) RETURNING *',
+      'INSERT INTO organizations (name, type, description, created_at) VALUES (:name, :type, :description, NOW()) RETURNING *',
       {
         replacements: {
           name: org.name,
@@ -321,7 +321,7 @@ export class DatabaseStorage implements IStorage {
       .join(', ');
 
     await sequelize.query(
-      `UPDATE organisations SET ${setClause} WHERE id = :id`,
+      `UPDATE organizations SET ${setClause} WHERE id = :id`,
       {
         replacements: { ...updates, id },
         type: QueryTypes.UPDATE
@@ -329,7 +329,7 @@ export class DatabaseStorage implements IStorage {
     );
 
     const result = await sequelize.query(
-      'SELECT * FROM organisations WHERE id = :id',
+      'SELECT * FROM organizations WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.SELECT
@@ -342,7 +342,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOrganization(id: number): Promise<void> {
     const result = await sequelize.query(
-      'DELETE FROM organisations WHERE id = :id',
+      'DELETE FROM organizations WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.DELETE
@@ -951,6 +951,17 @@ export class DatabaseStorage implements IStorage {
         type: QueryTypes.UPDATE
       }
     );
+  }
+
+  async getNotificationById(id: number): Promise<any> {
+    const result = await sequelize.query(
+      'SELECT * FROM notifications WHERE id = :id',
+      {
+        replacements: { id },
+        type: QueryTypes.SELECT
+      }
+    );
+    return result[0] || null;
   }
 
   async deleteNotification(id: number): Promise<void> {

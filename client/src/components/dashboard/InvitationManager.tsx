@@ -39,6 +39,8 @@ export const InvitationManager = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+  const [selectedInvitation, setSelectedInvitation] = useState<Invitation | null>(null);
   const [formData, setFormData] = useState<InvitationFormData>({
     email: '',
     role: '',
@@ -123,6 +125,11 @@ export const InvitationManager = () => {
     } else {
       return <Badge variant="secondary">Pending</Badge>;
     }
+  };
+
+  const handleViewDetails = (invitation: Invitation) => {
+    setSelectedInvitation(invitation);
+    setShowDetailsDialog(true);
   };
 
   return (
@@ -283,7 +290,11 @@ export const InvitationManager = () => {
                         <TableCell>{new Date(invitation.createdAt).toLocaleDateString()}</TableCell>
                         <TableCell>{new Date(invitation.expiresAt).toLocaleDateString()}</TableCell>
                         <TableCell>
-                          <Button variant="outline" size="sm">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleViewDetails(invitation)}
+                          >
                             View Details
                           </Button>
                         </TableCell>
@@ -296,6 +307,72 @@ export const InvitationManager = () => {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Invitation Details Dialog */}
+      <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Invitation Details</DialogTitle>
+          </DialogHeader>
+          {selectedInvitation && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Email</Label>
+                  <p className="text-sm text-gray-900">{selectedInvitation.email}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Role</Label>
+                  <p className="text-sm text-gray-900">{selectedInvitation.role.replace('_', ' ')}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Status</Label>
+                  <div className="mt-1">{getStatusBadge(selectedInvitation)}</div>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Invited Date</Label>
+                  <p className="text-sm text-gray-900">{new Date(selectedInvitation.createdAt).toLocaleString()}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Expires At</Label>
+                  <p className="text-sm text-gray-900">{new Date(selectedInvitation.expiresAt).toLocaleString()}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Invited By</Label>
+                  <p className="text-sm text-gray-900">User ID: {selectedInvitation.invitedBy}</p>
+                </div>
+              </div>
+              
+              {selectedInvitation.organizationId && (
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Organization</Label>
+                  <p className="text-sm text-gray-900">Organization ID: {selectedInvitation.organizationId}</p>
+                </div>
+              )}
+              
+              {selectedInvitation.stationId && (
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Station</Label>
+                  <p className="text-sm text-gray-900">Station ID: {selectedInvitation.stationId}</p>
+                </div>
+              )}
+
+              {selectedInvitation.isUsed && (
+                <div>
+                  <Label className="text-sm font-medium text-gray-700">Status</Label>
+                  <p className="text-sm text-gray-900">This invitation has been accepted</p>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-4">
+                <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

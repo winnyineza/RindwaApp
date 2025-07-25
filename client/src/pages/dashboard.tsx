@@ -8,18 +8,7 @@ export default function DashboardPage() {
   const { t } = useTranslation();
 
   const getTitle = () => {
-    switch (user?.role) {
-      case 'main_admin':
-        return t('systemAnalytics');
-      case 'super_admin':
-        return t('stationManagement');
-      case 'station_admin':
-        return t('incidentReporting');
-      case 'station_staff':
-        return t('myAssignedIncidents');
-      default:
-        return t('dashboard');
-    }
+    return t('dashboard');
   };
 
   const getSubtitle = () => {
@@ -27,18 +16,7 @@ export default function DashboardPage() {
     const orgInfo = user?.organizationName ? ` at ${user.organizationName}` : '';
     const stationInfo = user?.stationName ? ` - ${user.stationName}` : '';
     
-    switch (user?.role) {
-      case 'main_admin':
-        return `${t('welcomeBack')}, ${userName}.\n${t('manageOrganizationsDesc')}`;
-      case 'super_admin':
-        return `${t('welcomeBack')}, ${userName}${orgInfo}.\n${t('manageStationsDesc')}`;
-      case 'station_admin':
-        return `${t('welcomeBack')}, ${userName}${orgInfo}${stationInfo}.\n${t('manageIncidentsDesc')}`;
-      case 'station_staff':
-        return `${t('welcomeBack')}, ${userName}${orgInfo}${stationInfo}.\n${t('viewIncidentsDesc')}`;
-      default:
-        return `Welcome to Rindwa Admin, ${userName}`;
-    }
+    return `Welcome back, ${userName}${orgInfo}${stationInfo}.\nManage stations and organization-level operations`;
   };
 
   return (

@@ -1,19 +1,79 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, FileText, User, Clock, CheckCircle, XCircle } from "lucide-react";
 import { formatDate } from "@/lib/dateUtils";
+import { updateIncident, escalateIncident } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function IncidentWorkflowPage() {
   const [selectedIncident, setSelectedIncident] = useState<any>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const { data: incidents, isLoading } = useQuery({
+  const { data: incidents = [], isLoading } = useQuery({
     queryKey: ["/api/incidents"],
     refetchInterval: 30000,
   });
+
+  // Mutation for marking incident as complete
+  const markCompleteMutation = useMutation({
+    mutationFn: (incidentId: string) => updateIncident(incidentId, { status: 'resolved' }),
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Incident marked as completed successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      setSelectedIncident(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to mark incident as complete",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation for escalating incident
+  const escalateMutation = useMutation({
+    mutationFn: (incidentId: string) => escalateIncident(incidentId, { reason: 'Escalated from workflow' }),
+    onSuccess: () => {
+      toast({
+        title: "Success", 
+        description: "Incident escalated successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      setSelectedIncident(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to escalate incident",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleMarkComplete = () => {
+    if (!selectedIncident) return;
+    
+    if (window.confirm('Are you sure you want to mark this incident as complete?')) {
+      markCompleteMutation.mutate(selectedIncident.id);
+    }
+  };
+
+  const handleEscalate = () => {
+    if (!selectedIncident) return;
+    
+    if (window.confirm('Are you sure you want to escalate this incident?')) {
+      escalateMutation.mutate(selectedIncident.id);
+    }
+  };
 
   const incidentTypes = [
     {
@@ -172,7 +232,7 @@ export default function IncidentWorkflowPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {incidents?.map((incident: any) => {
+                  {Array.isArray(incidents) && incidents.map((incident: any) => {
                     const incidentType = getIncidentType(incident.title, incident.description);
                     return (
                       <div 
@@ -206,7 +266,7 @@ export default function IncidentWorkflowPage() {
                       </div>
                     );
                   })}
-                  {incidents?.length === 0 && (
+                  {Array.isArray(incidents) && incidents.length === 0 && (
                     <div className="text-center py-8 text-gray-500">
                       No incidents found.
                     </div>
@@ -264,13 +324,24 @@ export default function IncidentWorkflowPage() {
                   <div className="mt-4 pt-4 border-t">
                     <h4 className="font-semibold mb-2">Quick Actions</h4>
                     <div className="flex space-x-2">
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700">
+                      <Button 
+                        size="sm" 
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={handleMarkComplete}
+                        disabled={markCompleteMutation.isPending || selectedIncident?.status === 'resolved'}
+                      >
                         <CheckCircle className="w-4 h-4 mr-1" />
-                        Mark Complete
+                        {markCompleteMutation.isPending ? 'Completing...' : 'Mark Complete'}
                       </Button>
-                      <Button size="sm" variant="outline" className="border-red-600 text-red-600">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="border-red-600 text-red-600 hover:bg-red-50"
+                        onClick={handleEscalate}
+                        disabled={escalateMutation.isPending || selectedIncident?.status === 'escalated'}
+                      >
                         <XCircle className="w-4 h-4 mr-1" />
-                        Escalate
+                        {escalateMutation.isPending ? 'Escalating...' : 'Escalate'}
                       </Button>
                     </div>
                   </div>
