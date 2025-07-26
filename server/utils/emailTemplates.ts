@@ -67,6 +67,9 @@ export function generateCitizenWelcomeEmail(userData: WelcomeEmailData): { subje
       <body>
         <div class="container">
           <div class="header">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <img src="https://your-server-domain.com/logo.png" alt="Rindwa Logo" style="width: 60px; height: 60px; object-fit: contain;" />
+            </div>
             <h1>🎉 Welcome to Rindwa!</h1>
             <p style="margin: 10px 0 0 0; font-size: 18px;">Your Safety, Our Priority</p>
           </div>
@@ -270,6 +273,9 @@ export function generateAdminWelcomeEmail(userData: WelcomeEmailData): { subject
       <body>
         <div class="container">
           <div class="header">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <img src="https://your-server-domain.com/logo.png" alt="Rindwa Logo" style="width: 60px; height: 60px; object-fit: contain;" />
+            </div>
             <h1>🎉 Welcome to Rindwa!</h1>
             <p style="margin: 10px 0 0 0; font-size: 18px;">Emergency Response Team</p>
           </div>
@@ -419,6 +425,226 @@ export function generateAdminWelcomeEmail(userData: WelcomeEmailData): { subject
   `;
 
   return { subject, html, text };
+}
+
+/**
+ * Data interface for new user credentials email
+ */
+export interface NewUserCredentialsData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string; // Plain text password to include in email
+  role: 'main_admin' | 'super_admin' | 'station_admin' | 'station_staff' | 'citizen';
+  organizationName?: string;
+  stationName?: string;
+  loginUrl?: string;
+}
+
+/**
+ * Generate credentials email for newly created users
+ */
+export function generateNewUserCredentialsEmail(userData: NewUserCredentialsData): { subject: string; html: string; text: string } {
+  const { firstName, lastName, email, password, role, organizationName, stationName } = userData;
+  const fullName = `${firstName} ${lastName}`;
+  const loginUrl = userData.loginUrl || 'http://localhost:5173/login';
+  
+  // Role display mapping
+  const roleDisplayMap = {
+    'main_admin': 'Main Administrator',
+    'super_admin': 'Super Administrator', 
+    'station_admin': 'Station Administrator',
+    'station_staff': 'Station Staff',
+    'citizen': 'Citizen'
+  };
+  const roleDisplayName = roleDisplayMap[role] || role;
+
+  const subject = `🔐 Your Rindwa Emergency Platform Account - Welcome ${fullName}!`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Rindwa Account Credentials</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+          .header { background: linear-gradient(135deg, #DC2626 0%, #7F1D1D 100%); color: white; padding: 30px; text-align: center; }
+          .header h1 { margin: 0; font-size: 28px; font-weight: bold; }
+          .content { padding: 30px; }
+          .welcome-message { background: #FEF2F2; border-left: 4px solid #DC2626; padding: 20px; margin: 20px 0; border-radius: 6px; }
+          .credentials-box { background: #F3F4F6; border: 2px solid #6B7280; padding: 25px; border-radius: 8px; margin: 20px 0; }
+          .credential-item { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 12px 0; 
+            border-bottom: 1px solid #D1D5DB;
+          }
+          .credential-item:last-child { border-bottom: none; }
+          .credential-label { font-weight: bold; color: #374151; }
+          .credential-value { 
+            font-family: 'Courier New', monospace; 
+            background: #ffffff; 
+            padding: 8px 12px; 
+            border-radius: 4px; 
+            border: 1px solid #D1D5DB;
+            color: #1F2937;
+          }
+          .security-warning { background: #FEF3C7; border: 2px solid #F59E0B; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .cta-button { background: #DC2626; color: white !important; padding: 15px 30px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 20px 0; }
+          .role-info { background: #EBF5FF; border-left: 4px solid #3B82F6; padding: 20px; margin: 20px 0; border-radius: 6px; }
+          .footer { background: #1F2937; color: #9CA3AF; padding: 20px; text-align: center; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <img src="https://your-server-domain.com/logo.png" alt="Rindwa Logo" style="width: 60px; height: 60px; object-fit: contain;" />
+            </div>
+            <h1>🔐 Account Created!</h1>
+            <p style="margin: 10px 0 0 0; font-size: 18px;">Welcome to Rindwa Emergency Platform</p>
+          </div>
+          
+          <div class="content">
+            <div class="welcome-message">
+              <h2 style="margin-top: 0; color: #DC2626;">Hello ${fullName}!</h2>
+              <p style="margin: 0;">
+                <strong>Your Rindwa Emergency Platform account has been created!</strong> 
+                An administrator has set up your account and you can now access the platform using the credentials below.
+              </p>
+            </div>
+            
+            <div class="role-info">
+              <h3 style="margin-top: 0; color: #1E40AF;">👤 Your Account Information:</h3>
+              <p><strong>Role:</strong> ${roleDisplayName}</p>
+              ${organizationName ? `<p><strong>Organization:</strong> ${organizationName}</p>` : ''}
+              ${stationName ? `<p><strong>Station:</strong> ${stationName}</p>` : ''}
+            </div>
+            
+            <div class="credentials-box">
+              <h3 style="margin-top: 0; color: #374151;">🔑 Your Login Credentials:</h3>
+              
+              <div class="credential-item">
+                <span class="credential-label">Email Address:</span>
+                <span class="credential-value">${email}</span>
+              </div>
+              
+              <div class="credential-item">
+                <span class="credential-label">Password:</span>
+                <span class="credential-value">${password}</span>
+              </div>
+            </div>
+            
+            <div class="security-warning">
+              <h4 style="margin-top: 0; color: #92400E;">🔒 Important Security Notice:</h4>
+              <ul style="margin: 10px 0; color: #92400E;">
+                <li><strong>Change your password immediately</strong> after your first login</li>
+                <li><strong>Keep your credentials secure</strong> and never share them with others</li>
+                <li><strong>Use a strong, unique password</strong> that you don't use elsewhere</li>
+                <li><strong>Log out</strong> when you're finished using the platform</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${loginUrl}" class="cta-button">🚀 Login to Your Account</a>
+            </div>
+            
+            <div style="background: #F0FDF4; border-left: 4px solid #10B981; padding: 20px; margin: 20px 0; border-radius: 6px;">
+              <h4 style="margin-top: 0; color: #065F46;">📝 Next Steps:</h4>
+              <ol style="margin: 10px 0; color: #047857;">
+                <li>Click the login button above or visit: <strong>${loginUrl}</strong></li>
+                <li>Enter your email and password to access your account</li>
+                <li>Update your password in your profile settings</li>
+                <li>Complete your profile information</li>
+                <li>Familiarize yourself with the dashboard and your role's capabilities</li>
+              </ol>
+            </div>
+            
+            <p style="color: #6B7280; font-size: 14px; margin-top: 30px;">
+              If you have any questions or need assistance, please contact your administrator or our support team.
+            </p>
+          </div>
+          
+          <div class="footer">
+            <p style="margin: 0 0 10px 0;">
+              <strong>Rindwa Emergency Platform</strong> - Your Safety, Our Priority
+            </p>
+            <p style="margin: 0;">
+              © ${new Date().getFullYear()} Rindwa Emergency Platform. All rights reserved.
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const text = `
+    Your Rindwa Emergency Platform Account - Welcome ${fullName}!
+    
+    Hello ${fullName}!
+    
+    Your Rindwa Emergency Platform account has been created! An administrator has set up your account and you can now access the platform using the credentials below.
+    
+    Your Account Information:
+    Role: ${roleDisplayName}
+    ${organizationName ? `Organization: ${organizationName}` : ''}
+    ${stationName ? `Station: ${stationName}` : ''}
+    
+    Your Login Credentials:
+    Email Address: ${email}
+    Password: ${password}
+    
+    IMPORTANT SECURITY NOTICE:
+    - Change your password immediately after your first login
+    - Keep your credentials secure and never share them with others  
+    - Use a strong, unique password that you don't use elsewhere
+    - Log out when you're finished using the platform
+    
+    Next Steps:
+    1. Visit: ${loginUrl}
+    2. Enter your email and password to access your account
+    3. Update your password in your profile settings
+    4. Complete your profile information
+    5. Familiarize yourself with the dashboard and your role's capabilities
+    
+    If you have any questions or need assistance, please contact your administrator or our support team.
+    
+    © ${new Date().getFullYear()} Rindwa Emergency Platform. All rights reserved.
+  `;
+
+  return { subject, html, text };
+}
+
+/**
+ * Send credentials email to newly created user
+ */
+export async function sendNewUserCredentialsEmail(userData: NewUserCredentialsData, sendEmailFunction: any): Promise<boolean> {
+  try {
+    const emailTemplate = generateNewUserCredentialsEmail(userData);
+
+    const success = await sendEmailFunction({
+      to: userData.email,
+      from: "onboarding@resend.dev",
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+
+    if (success) {
+      console.log(`✅ Credentials email sent successfully to ${userData.email} (${userData.role})`);
+      return true;
+    } else {
+      console.error(`❌ Failed to send credentials email to ${userData.email}`);
+      return false;
+    }
+  } catch (error) {
+    console.error('Error sending credentials email:', error);
+    return false;
+  }
 }
 
 /**

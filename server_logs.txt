@@ -1,0 +1,49 @@
+
+> rindwa-emergency-platform@1.0.0 dev
+> concurrently "npm run dev:server" "npm run dev:client"
+
+[1] 
+[1] > rindwa-emergency-platform@1.0.0 dev:client
+[1] > vite
+[1] 
+[0] 
+[0] > rindwa-emergency-platform@1.0.0 dev:server
+[0] > NODE_ENV=development tsx server/index.ts
+[0] 
+[1] Port 5173 is in use, trying another one...
+[1] 
+[1]   VITE v5.4.19  ready in 87 ms
+[1] 
+[1]   ➜  Local:   http://localhost:5174/
+[1]   ➜  Network: http://192.168.1.129:5174/
+[0] [dotenv@17.2.0] injecting env (72) from .env (tip: ⚙️  write to custom object with { processEnv: myObject })
+[0] 🔧 Database Mode: Development
+[0] 🔧 SSL Enabled: false
+[0] [dotenv@17.2.0] injecting env (0) from .env (tip: ⚙️  suppress all logs with { quiet: true })
+[0] 🚀 Advanced Push Notification Service initialized
+[0] 🚀 Starting incident escalation monitoring...
+[0] 🔄 Processing incident escalations...
+[0] [32minfo[39m: 🚀 Incident escalation monitoring started {"timestamp":"2025-07-26T17:19:27.115Z"}
+[0] node:events:485
+[0]       throw er; // Unhandled 'error' event
+[0]       ^
+[0] 
+[0] Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+[0]     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+[0]     at listenInCluster (node:net:1997:12)
+[0]     at node:net:2206:7
+[0]     at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+[0] Emitted 'error' event on WebSocketServer instance at:
+[0]     at Server.emit (node:events:507:28)
+[0]     at emitErrorNT (node:net:1976:8)
+[0]     at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+[0]   code: 'EADDRINUSE',
+[0]   errno: -48,
+[0]   syscall: 'listen',
+[0]   address: '0.0.0.0',
+[0]   port: 3000
+[0] }
+[0] 
+[0] Node.js v24.3.0
+[0] npm run dev:server exited with code 1
+[1] npm run dev:client exited with code SIGTERM

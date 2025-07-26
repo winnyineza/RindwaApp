@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { login as loginApi } from "@/lib/auth";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
-import { Shield, AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -22,6 +22,7 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export const LoginForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -40,8 +41,10 @@ export const LoginForm = () => {
       const response = await loginApi(data.email, data.password);
       
       if (response.token) {
-        login(response.token);
-        setLocation("/dashboard");
+        login(response.token, () => {
+          console.log("LoginForm: Login successful, redirecting to dashboard");
+          setLocation("/dashboard");
+        });
       }
     } catch (err: any) {
       console.error("Login error:", err);
@@ -56,12 +59,19 @@ export const LoginForm = () => {
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <div className="flex justify-center">
-            <div className="w-16 h-16 bg-red-600 rounded-lg flex items-center justify-center mb-6">
-              <Shield className="w-8 h-8 text-white" />
+            <div className="w-20 h-20 mb-8 relative">
+              <div className="w-full h-full rounded-2xl bg-gradient-to-br from-red-500 to-red-700 shadow-2xl shadow-red-500/30 flex items-center justify-center p-1 transition-transform duration-300 hover:scale-105">
+                <img 
+                  src="/logo.png" 
+                  alt="Rindwa Logo" 
+                  className="w-full h-full object-contain rounded-xl filter drop-shadow-lg"
+                />
+              </div>
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/20 to-transparent pointer-events-none"></div>
             </div>
           </div>
-                      <h2 className="text-3xl font-bold text-foreground mb-2">Rindwa Admin</h2>
-            <p className="text-muted-foreground">Sign in to your dashboard</p>
+          <h2 className="text-3xl font-bold text-foreground mb-2">Rindwa Admin</h2>
+          <p className="text-muted-foreground">Sign in to your dashboard</p>
         </div>
         
         <Card className="bg-white shadow-lg border-0">
@@ -96,15 +106,30 @@ export const LoginForm = () => {
                 <Label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
                   Password
                 </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  {...register("password")}
-                  className={`h-12 block w-full ${
-                    errors.password ? "border-destructive bg-destructive/10" : ""
-                  }`}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    {...register("password")}
+                    className={`h-12 block w-full pr-12 ${
+                      errors.password ? "border-destructive bg-destructive/10" : ""
+                    }`}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
                 {errors.password && (
                   <p className="mt-1 text-sm text-destructive">{errors.password.message}</p>
                 )}

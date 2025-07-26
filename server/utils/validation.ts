@@ -104,7 +104,7 @@ export const fileUploadSchema = z.object({
 export const notificationCreationSchema = z.object({
   title: z.string().min(1).max(200),
   message: z.string().min(1).max(1000),
-  type: z.enum(['info', 'warning', 'error', 'success']),
+  type: z.enum(['INCIDENT_CREATED', 'INCIDENT_UPDATED', 'INCIDENT_ASSIGNED', 'INCIDENT_ESCALATED', 'INCIDENT_RESOLVED', 'INCIDENT_COMMENTED', 'EMERGENCY_CONTACT_ADDED', 'USER_INVITED', 'SYSTEM_ALERT', 'PROFILE_UPDATED', 'PASSWORD_CHANGED']),
   userId: z.number().positive().optional(),
   targetRole: z.enum(['main_admin', 'super_admin', 'station_admin', 'station_staff', 'citizen']).optional(),
   organizationId: z.number().positive().optional(),

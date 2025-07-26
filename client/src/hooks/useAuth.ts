@@ -67,7 +67,7 @@ export const useAuth = () => {
     window.location.href = "/login";
   };
 
-  const login = (token: string) => {
+  const login = (token: string, onComplete?: () => void) => {
     // Store the new token first
     setStoredToken(token);
     
@@ -92,10 +92,19 @@ export const useAuth = () => {
         updatedAt: payload.updatedAt || payload.createdAt || ''
       };
       
+      // Update state immediately
       setUser(newUser);
       setLoading(false);
       
+      console.log("Login successful, user set:", newUser);
+      
+      // Call onComplete callback after state update
+      if (onComplete) {
+        setTimeout(onComplete, 0);
+      }
+      
     } catch (error) {
+      console.error("Error parsing token during login:", error);
       setUser(null);
     }
   };

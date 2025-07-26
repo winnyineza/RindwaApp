@@ -202,12 +202,12 @@ export class IncidentAssignmentService {
       try {
         // Fallback to basic distance calculation
         const stations = await sequelize.query(
-          `SELECT id, name, "organizationId", location FROM stations WHERE "isActive" = true`,
+          `SELECT id, name, organisation_id as "organizationId", location FROM stations WHERE is_active = true`,
           { type: QueryTypes.SELECT }
         ) as any[];
         
         const organizations = await sequelize.query(
-          `SELECT id, name FROM organizations WHERE "isActive" = true`,
+          `SELECT id, name FROM organizations WHERE is_active = true`,
           { type: QueryTypes.SELECT }
         ) as any[];
         
@@ -266,11 +266,11 @@ export class IncidentAssignmentService {
         console.error('Error in fallback station assignment:', fallbackError);
         
         // Ultimate fallback: return first available station
-        const fallbackStations = await sequelize.query(
-          `SELECT s.id, s.name FROM stations s 
-           JOIN organizations o ON s."organizationId" = o.id 
-           WHERE o.name ILIKE :orgPattern AND s."isActive" = true 
-           LIMIT 1`,
+              const fallbackStations = await sequelize.query(
+        `SELECT s.id, s.name FROM stations s 
+         JOIN organizations o ON s.organisation_id = o.id 
+         WHERE o.name ILIKE :orgPattern AND s.is_active = true 
+         LIMIT 1`,
           {
             replacements: { 
               orgPattern: organizationType === 'health' ? '%Health%' : 
@@ -347,7 +347,7 @@ export class IncidentAssignmentService {
       
       // Get organization ID
       const organizations = await sequelize.query(
-        `SELECT id FROM organizations WHERE name ILIKE :pattern AND "isActive" = true LIMIT 1`,
+        `SELECT id FROM organizations WHERE name ILIKE :pattern AND is_active = true LIMIT 1`,
         {
           replacements: { 
             pattern: contentAnalysis.organization === 'health' ? '%Health%' : 
@@ -371,8 +371,8 @@ export class IncidentAssignmentService {
       const fallback = await sequelize.query(
         `SELECT o.id as orgId, s.id as stationId 
          FROM organizations o 
-         JOIN stations s ON o.id = s."organizationId" 
-         WHERE o.name ILIKE '%Police%' AND o."isActive" = true AND s."isActive" = true 
+         JOIN stations s ON o.id = s.organisation_id 
+         WHERE o.name ILIKE '%Police%' AND o.is_active = true AND s.is_active = true 
          LIMIT 1`,
         { type: QueryTypes.SELECT }
       ) as any[];

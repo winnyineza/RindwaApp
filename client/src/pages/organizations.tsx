@@ -233,7 +233,7 @@ export default function OrganizationsPage() {
                 <TableBody>
                   {filteredOrganizations?.map((org: any) => (
                     <TableRow key={org.id}>
-                      <TableCell className="font-medium text-white">{org.name}</TableCell>
+                      <TableCell className="font-medium text-foreground">{org.name}</TableCell>
                                         <TableCell>{org.type}</TableCell>
                   <TableCell>{org.description || "No description"}</TableCell>
                       <TableCell>

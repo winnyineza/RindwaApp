@@ -7,10 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Shield, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Shield, CheckCircle, XCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { setStoredToken } from "@/lib/auth";
 
 interface InvitationData {
   id: number;
@@ -28,6 +28,7 @@ export default function AcceptInvitationPage() {
   const { token } = useParams<{ token: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { login } = useAuth();
   
   const [formData, setFormData] = useState({
     firstName: "",
@@ -38,6 +39,8 @@ export default function AcceptInvitationPage() {
   });
   
   const [error, setError] = useState<string>("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const { data: invitation, isLoading, error: invitationError } = useQuery<InvitationData>({
     queryKey: [`/api/invitations/${token}`],
@@ -62,8 +65,10 @@ export default function AcceptInvitationPage() {
         title: "Account created successfully",
         description: "Welcome to Rindwa Emergency Management Platform!",
       });
-      setStoredToken(response.token);
-      setLocation("/dashboard");
+      login(response.token, () => {
+        console.log("AcceptInvitation: Account created, redirecting to dashboard");
+        setLocation("/dashboard");
+      });
     },
     onError: (error: any) => {
       setError(error.message || "Failed to accept invitation");
@@ -141,36 +146,43 @@ export default function AcceptInvitationPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-primary rounded-lg flex items-center justify-center">
-              <Shield className="w-8 h-8 text-primary-foreground" />
+          <div className="flex justify-center mb-6">
+            <div className="w-18 h-18 relative">
+              <div className="w-full h-full rounded-xl bg-gradient-to-br from-red-500 to-red-700 shadow-xl shadow-red-500/25 flex items-center justify-center p-1 transition-transform duration-300 hover:scale-105">
+                <img 
+                  src="/logo.png" 
+                  alt="Rindwa Logo" 
+                  className="w-full h-full object-contain rounded-lg filter drop-shadow-md"
+                />
+              </div>
+              <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/15 to-transparent pointer-events-none"></div>
             </div>
           </div>
           <CardTitle className="text-2xl font-bold">Complete Your Account</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-6 p-4 bg-muted rounded-lg">
-            <h3 className="font-semibold mb-2">Invitation Details</h3>
-            <div className="space-y-2 text-sm">
-              <p className="flex items-center justify-between">
-                <span className="text-muted-foreground">Email:</span>
-                <span className="font-medium">{invitation.email}</span>
-              </p>
-              <p className="flex items-center justify-between">
-                <span className="text-muted-foreground">Role:</span>
+            <h3 className="font-semibold mb-3 text-foreground">Invitation Details</h3>
+            <div className="space-y-2">
+              <div className="text-sm">
+                <span className="text-muted-foreground font-medium">Email: </span>
+                <span className="font-medium break-all">{invitation.email}</span>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground font-medium">Role: </span>
                 {getRoleBadge(invitation.role)}
-              </p>
+              </div>
               {invitation.organizationName && (
-                <p className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Organization:</span>
+                <div className="text-sm">
+                  <span className="text-muted-foreground font-medium">Organization: </span>
                   <span className="font-medium">{invitation.organizationName}</span>
-                </p>
+                </div>
               )}
               {invitation.stationName && (
-                <p className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Station:</span>
+                <div className="text-sm">
+                  <span className="text-muted-foreground font-medium">Station: </span>
                   <span className="font-medium">{invitation.stationName}</span>
-                </p>
+                </div>
               )}
             </div>
           </div>
@@ -222,28 +234,58 @@ export default function AcceptInvitationPage() {
 
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder="Create a password"
-                required
-                className="focus-visible:ring-primary"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder="Create a password"
+                  required
+                  className="focus-visible:ring-primary pr-12"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                value={formData.confirmPassword}
-                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                placeholder="Confirm your password"
-                required
-                className="focus-visible:ring-primary"
-              />
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={formData.confirmPassword}
+                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                  placeholder="Confirm your password"
+                  required
+                  className="focus-visible:ring-primary pr-12"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
 
             <Button 

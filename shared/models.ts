@@ -334,7 +334,7 @@ export interface NotificationAttributes {
   userId: string;
   title: string;
   message: string;
-  type: 'info' | 'warning' | 'success' | 'error';
+  type: 'INCIDENT_CREATED' | 'INCIDENT_UPDATED' | 'INCIDENT_ASSIGNED' | 'INCIDENT_ESCALATED' | 'INCIDENT_RESOLVED' | 'INCIDENT_COMMENTED' | 'EMERGENCY_CONTACT_ADDED' | 'USER_INVITED' | 'SYSTEM_ALERT' | 'PROFILE_UPDATED' | 'PASSWORD_CHANGED';
   relatedEntityType?: string;
   relatedEntityId?: string;
   isRead: boolean;
@@ -349,7 +349,7 @@ export class Notification extends Model<NotificationAttributes, NotificationCrea
   public userId!: string;
   public title!: string;
   public message!: string;
-  public type!: 'info' | 'warning' | 'success' | 'error';
+  public type!: 'INCIDENT_CREATED' | 'INCIDENT_UPDATED' | 'INCIDENT_ASSIGNED' | 'INCIDENT_ESCALATED' | 'INCIDENT_RESOLVED' | 'INCIDENT_COMMENTED' | 'EMERGENCY_CONTACT_ADDED' | 'USER_INVITED' | 'SYSTEM_ALERT' | 'PROFILE_UPDATED' | 'PASSWORD_CHANGED';
   public relatedEntityType?: string;
   public relatedEntityId?: string;
   public isRead!: boolean;
@@ -978,7 +978,7 @@ Notification.init(
       allowNull: false,
     },
     type: {
-      type: DataTypes.ENUM('info', 'warning', 'success', 'error'),
+      type: DataTypes.ENUM('INCIDENT_CREATED', 'INCIDENT_UPDATED', 'INCIDENT_ASSIGNED', 'INCIDENT_ESCALATED', 'INCIDENT_RESOLVED', 'INCIDENT_COMMENTED', 'EMERGENCY_CONTACT_ADDED', 'USER_INVITED', 'SYSTEM_ALERT', 'PROFILE_UPDATED', 'PASSWORD_CHANGED'),
       allowNull: false,
     },
     relatedEntityType: {

@@ -102,11 +102,11 @@ export interface IStorage {
 
   // Notification operations
   createNotification(notification: InsertNotification): Promise<Notification>;
-  getNotificationsByUser(userId: number): Promise<Notification[]>;
-  getUnreadNotifications(userId: number): Promise<Notification[]>;
-  markNotificationAsRead(id: number): Promise<void>;
-  markAllNotificationsAsRead(userId: number): Promise<void>;
-  deleteNotification(id: number): Promise<void>;
+  getNotificationsByUser(userId: string): Promise<Notification[]>;
+  getUnreadNotifications(userId: string): Promise<Notification[]>;
+  markNotificationAsRead(id: string): Promise<void>;
+  markAllNotificationsAsRead(userId: string): Promise<void>;
+  deleteNotification(id: string): Promise<void>;
 
   // Emergency Contact operations  
   getEmergencyContactsByUser(userId: string): Promise<EmergencyContact[]>;
@@ -292,7 +292,7 @@ export class DatabaseStorage implements IStorage {
 
   async getAllOrganizations(): Promise<Organization[]> {
     const organizations = await sequelize.query(
-      'SELECT * FROM organizations ORDER BY created_at DESC',
+      'SELECT * FROM organizations ORDER BY "createdAt" DESC',
       {
         type: QueryTypes.SELECT
       }
@@ -302,7 +302,7 @@ export class DatabaseStorage implements IStorage {
 
   async createOrganization(org: InsertOrganization): Promise<Organization> {
     const result = await sequelize.query(
-      'INSERT INTO organizations (name, type, description, created_at) VALUES (:name, :type, :description, NOW()) RETURNING *',
+      'INSERT INTO organizations (name, type, description, "createdAt") VALUES (:name, :type, :description, NOW()) RETURNING *',
       {
         replacements: {
           name: org.name,
@@ -364,7 +364,7 @@ export class DatabaseStorage implements IStorage {
 
   async getStationsByOrganization(orgId: number): Promise<Station[]> {
     const stations = await sequelize.query(
-      'SELECT * FROM stations WHERE "organizationId" = :orgId ORDER BY created_at DESC',
+      'SELECT * FROM stations WHERE organisation_id = :orgId ORDER BY created_at DESC',
       {
         replacements: { orgId },
         type: QueryTypes.SELECT
@@ -381,7 +381,7 @@ export class DatabaseStorage implements IStorage {
         o.name as organization_name, 
         o.type as organization_type
       FROM stations s 
-      LEFT JOIN organizations o ON s."organizationId" = o.id 
+      LEFT JOIN organizations o ON s.organisation_id = o.id 
       ORDER BY s.created_at DESC`,
       {
         type: QueryTypes.SELECT
@@ -433,10 +433,10 @@ export class DatabaseStorage implements IStorage {
   async createStation(station: InsertStation): Promise<Station> {
     const result = await sequelize.query(
       `INSERT INTO stations (
-        name, district, sector, "organizationId", "contactNumber", 
+        name, district, sector, organisation_id, contact_number, 
         capacity, created_at
       ) VALUES (
-        :name, :district, :sector, :organizationId, :contactNumber, 
+        :name, :district, :sector, :organisationId, :contactNumber, 
         :capacity, NOW()
       ) RETURNING *`,
       {
@@ -444,7 +444,7 @@ export class DatabaseStorage implements IStorage {
           name: station.name,
           district: station.district,
           sector: station.sector,
-          organizationId: station.organizationId,
+          organisationId: station.organisationId,
           contactNumber: station.contactNumber || null,
           capacity: station.capacity || null
         },
@@ -888,11 +888,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createNotification(notification: InsertNotification): Promise<Notification> {
+    console.log('🔔 DEBUG: Creating notification with data:', notification);
     const result = await sequelize.query(
       `INSERT INTO notifications (
-        "user_id", type, title, message, data, read, priority, "created_at", "updated_at"
+        id, user_id, type, title, message, data, read, priority, created_at, updated_at
       ) VALUES (
-        :userId, :type, :title, :message, :data, :read, :priority, NOW(), NOW()
+        uuid_generate_v4(), :userId, :type, :title, :message, :data, :isRead, :priority, NOW(), NOW()
       ) RETURNING *`,
       {
         replacements: {
@@ -901,41 +902,65 @@ export class DatabaseStorage implements IStorage {
           title: notification.title,
           message: notification.message,
           data: notification.relatedEntityType && notification.relatedEntityId ? 
-            { entityType: notification.relatedEntityType, entityId: notification.relatedEntityId } : {},
-          read: notification.isRead ?? false,
-          priority: 'low'
+            JSON.stringify({ entityType: notification.relatedEntityType, entityId: notification.relatedEntityId }) : 
+            JSON.stringify({}),
+          isRead: notification.isRead ?? false,
+          priority: 'low' // Default priority for user notifications
         },
         type: QueryTypes.SELECT
       }
     );
+    console.log('✅ Notification created successfully:', result[0]);
     return result[0] as Notification;
   }
 
-  async getNotificationsByUser(userId: number): Promise<Notification[]> {
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
     const notifications = await sequelize.query(
-      'SELECT * FROM notifications WHERE "user_id" = :userId ORDER BY "created_at" DESC',
+      'SELECT * FROM notifications WHERE user_id = :userId ORDER BY created_at DESC',
       {
         replacements: { userId },
         type: QueryTypes.SELECT
       }
     );
-    return notifications as Notification[];
+    // Map database columns to interface format
+    return (notifications as any[]).map(notification => ({
+      ...notification,
+      userId: notification.user_id,
+      isRead: notification.read,
+      createdAt: notification.created_at,
+      updatedAt: notification.updated_at,
+      actionUrl: notification.action_url,
+      incidentId: notification.incident_id,
+      relatedEntityType: notification.related_entity_type,
+      relatedEntityId: notification.related_entity_id
+    }));
   }
 
-  async getUnreadNotifications(userId: number): Promise<Notification[]> {
+  async getUnreadNotifications(userId: string): Promise<Notification[]> {
     const notifications = await sequelize.query(
-      'SELECT * FROM notifications WHERE "user_id" = :userId AND read = false ORDER BY "created_at" DESC',
+      'SELECT * FROM notifications WHERE user_id = :userId AND read = false ORDER BY created_at DESC',
       {
         replacements: { userId },
         type: QueryTypes.SELECT
       }
     );
-    return notifications as Notification[];
+    // Map database columns to interface format
+    return (notifications as any[]).map(notification => ({
+      ...notification,
+      userId: notification.user_id,
+      isRead: notification.read,
+      createdAt: notification.created_at,
+      updatedAt: notification.updated_at,
+      actionUrl: notification.action_url,
+      incidentId: notification.incident_id,
+      relatedEntityType: notification.related_entity_type,
+      relatedEntityId: notification.related_entity_id
+    }));
   }
 
-  async markNotificationAsRead(id: number): Promise<void> {
+  async markNotificationAsRead(id: string): Promise<void> {
     await sequelize.query(
-      'UPDATE notifications SET read = true WHERE id = :id',
+      'UPDATE notifications SET read = true, read_at = NOW() WHERE id = :id',
       {
         replacements: { id },
         type: QueryTypes.UPDATE
@@ -943,9 +968,9 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async markAllNotificationsAsRead(userId: number): Promise<void> {
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
     await sequelize.query(
-      'UPDATE notifications SET read = true WHERE "user_id" = :userId',
+      'UPDATE notifications SET read = true, read_at = NOW() WHERE user_id = :userId',
       {
         replacements: { userId },
         type: QueryTypes.UPDATE
@@ -953,7 +978,7 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getNotificationById(id: number): Promise<any> {
+  async getNotificationById(id: string): Promise<any> {
     const result = await sequelize.query(
       'SELECT * FROM notifications WHERE id = :id',
       {
@@ -961,10 +986,24 @@ export class DatabaseStorage implements IStorage {
         type: QueryTypes.SELECT
       }
     );
-    return result[0] || null;
+    if (result.length === 0) return null;
+    
+    const notification = result[0] as any;
+    // Map database columns to interface format
+    return {
+      ...notification,
+      userId: notification.user_id,
+      isRead: notification.read,
+      createdAt: notification.created_at,
+      updatedAt: notification.updated_at,
+      actionUrl: notification.action_url,
+      incidentId: notification.incident_id,
+      relatedEntityType: notification.related_entity_type,
+      relatedEntityId: notification.related_entity_id
+    };
   }
 
-  async deleteNotification(id: number): Promise<void> {
+  async deleteNotification(id: string): Promise<void> {
     await sequelize.query(
       'DELETE FROM notifications WHERE id = :id',
       {
@@ -1064,7 +1103,7 @@ export class DatabaseStorage implements IStorage {
   // Emergency Contact operations
   async getEmergencyContactsByUser(userId: string): Promise<EmergencyContact[]> {
     const contacts = await sequelize.query(
-      'SELECT * FROM emergency_contacts WHERE user_id = :userId ORDER BY created_at DESC',
+      'SELECT * FROM emergency_contacts WHERE "userId" = :userId ORDER BY "createdAt" DESC',
       {
         replacements: { userId },
         type: QueryTypes.SELECT
@@ -1079,9 +1118,9 @@ export class DatabaseStorage implements IStorage {
       
       const result = await sequelize.query(
         `INSERT INTO emergency_contacts (
-          id, user_id, name, phone, relationship, priority, created_at, updated_at
+          id, "userId", name, phone, relationship, "isPrimary", "createdAt", "updatedAt"
         ) VALUES (
-          gen_random_uuid(), :userId, :name, :phone, :relationship, 1, NOW(), NOW()
+          gen_random_uuid(), :userId, :name, :phone, :relationship, false, NOW(), NOW()
         ) RETURNING *`,
         {
           replacements: {

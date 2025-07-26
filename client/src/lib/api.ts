@@ -35,6 +35,7 @@ export const api = {
   get: createAuthenticatedRequest("GET"),
   post: createAuthenticatedRequest("POST"),
   put: createAuthenticatedRequest("PUT"),
+  patch: createAuthenticatedRequest("PATCH"),
   delete: createAuthenticatedRequest("DELETE"),
 };
 
@@ -61,5 +62,21 @@ export const getUsers = (params?: any) => {
   return api.get(`/api/users${query ? `?${query}` : ""}`);
 };
 
+export const createUser = (data: any) => api.post("/api/users", data);
+
+export const toggleUserActive = (userId: string) => 
+  api.patch(`/api/users/${userId}/toggle-active`);
+
+export const hardDeleteUser = (userId: string) => 
+  api.delete(`/api/users/${userId}/hard-delete`);
+
 export const migrateUser = (userId: string, stationId: string) => 
   api.put(`/api/users/${userId}/migrate`, { stationId });
+
+// Activities
+export const getRecentActivities = (limit?: number) => 
+  api.get(`/api/activities/recent${limit ? `?limit=${limit}` : ""}`);
+
+// Station Staff
+export const getStationStaff = (stationId: string) => 
+  api.get(`/api/stations/${stationId}/staff`);

@@ -9,8 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Users, Edit, Mail, Trash2, ArrowRight, Building2, MapPin } from "lucide-react";
-import { getUsers, getOrganizations, getStations, migrateUser } from "@/lib/api";
+import { Plus, Users, Edit, Mail, ArrowRight, Building2, MapPin, UserCheck, UserX, AlertTriangle, Eye, EyeOff } from "lucide-react";
+import { getUsers, getOrganizations, getStations, migrateUser, createUser, toggleUserActive, hardDeleteUser } from "@/lib/api";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -25,11 +25,11 @@ export default function UsersPage() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showMigrateModal, setShowMigrateModal] = useState(false);
-  const [userToDelete, setUserToDelete] = useState<any>(null);
   const [userToEdit, setUserToEdit] = useState<any>(null);
+  const [showHardDeleteModal, setShowHardDeleteModal] = useState(false);
+  const [userToHardDelete, setUserToHardDelete] = useState<any>(null);
   const [userToMigrate, setUserToMigrate] = useState<any>(null);
   const [formData, setFormData] = useState({
     email: "",
@@ -38,6 +38,8 @@ export default function UsersPage() {
     phone: "",
     role: "",
     password: "",
+    organizationId: "",
+    stationId: "",
   });
   const [editFormData, setEditFormData] = useState({
     email: "",
@@ -61,6 +63,7 @@ export default function UsersPage() {
   const [migrationData, setMigrationData] = useState({
     stationId: "",
   });
+  const [showPassword, setShowPassword] = useState(false);
 
   const { data: users, isLoading, refetch } = useQuery({
     queryKey: ["/api/users"],
@@ -76,6 +79,9 @@ export default function UsersPage() {
     const filtered = users?.filter((user: any) => {
       // Exclude main admin users
       if (user.role === 'main_admin') return false;
+      
+      // Citizens should only be visible to main admin
+      if (user.role === 'citizen' && currentUser?.role !== 'main_admin') return false;
       
       // Search filter
       if (searchTerm) {
@@ -107,7 +113,7 @@ export default function UsersPage() {
     // Group by organization for main admins, by station for super admins, otherwise just alphabetically
     if (currentUser?.role === 'main_admin') {
       const grouped = filtered.reduce((acc: any, user: any) => {
-        const orgName = user.organizationName || 'Unassigned';
+        const orgName = user.role === 'citizen' ? 'Citizens' : (user.organizationName || 'Citizens');
         if (!acc[orgName]) {
           acc[orgName] = [];
         }
@@ -127,7 +133,7 @@ export default function UsersPage() {
       return grouped;
     } else if (currentUser?.role === 'super_admin') {
       const grouped = filtered.reduce((acc: any, user: any) => {
-        const stationName = user.stationName || 'Unassigned';
+        const stationName = user.role === 'citizen' ? 'Citizens' : (user.stationName || 'Citizens');
         if (!acc[stationName]) {
           acc[stationName] = [];
         }
@@ -161,7 +167,7 @@ export default function UsersPage() {
     return Object.values(filteredAndGroupedUsers).flat();
   }, [filteredAndGroupedUsers]);
 
-  const { data: organizations } = useQuery({
+  const { data: organizations, refetch: refetchOrganizations } = useQuery({
     queryKey: ["/api/organizations"],
     queryFn: getOrganizations,
     enabled: !!currentUser && ['main_admin', 'super_admin', 'station_admin'].includes(currentUser.role)
@@ -200,27 +206,7 @@ export default function UsersPage() {
     }
   });
 
-  const deleteUserMutation = useMutation({
-    mutationFn: (userId: string) => apiRequest(`/api/users/${userId}`, {
-      method: 'DELETE'
-    }),
-    onSuccess: () => {
-      toast({
-        title: "User deleted",
-        description: "The user has been deleted successfully.",
-      });
-      setShowDeleteModal(false);
-      setUserToDelete(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete user",
-        variant: "destructive",
-      });
-    }
-  });
+
 
   const editUserMutation = useMutation({
     mutationFn: ({ userId, userData }: { userId: string; userData: any }) => 
@@ -268,6 +254,64 @@ export default function UsersPage() {
     }
   });
 
+  const toggleActiveUserMutation = useMutation({
+    mutationFn: (userId: string) => toggleUserActive(userId),
+    onSuccess: (data) => {
+      toast({
+        title: "User status updated",
+        description: data.message || "User status changed successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update user status",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const hardDeleteUserMutation = useMutation({
+    mutationFn: (userId: string) => hardDeleteUser(userId),
+    onSuccess: (data) => {
+      toast({
+        title: "User permanently deleted",
+        description: data.message || "User has been permanently removed.",
+      });
+      setShowHardDeleteModal(false);
+      setUserToHardDelete(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to permanently delete user",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const createUserMutation = useMutation({
+    mutationFn: (userData: any) => createUser(userData),
+    onSuccess: () => {
+      toast({
+        title: "User created successfully",
+        description: "The user has been created and credentials have been sent via email.",
+      });
+      setShowCreateModal(false);
+      setFormData({ email: "", firstName: "", lastName: "", phone: "", role: "", password: "", organizationId: "", stationId: "" });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create user",
+        variant: "destructive",
+      });
+    }
+  });
+
   const getRoleBadge = (role: string) => {
     if (!role) return <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">Unknown</Badge>;
     
@@ -289,11 +333,11 @@ export default function UsersPage() {
   const getAvailableRoles = () => {
     switch (currentUser?.role) {
       case 'main_admin':
-        return ['super_admin'];
+        return ['super_admin', 'station_admin', 'station_staff', 'citizen'];
       case 'super_admin':
-        return ['station_admin'];
+        return ['station_admin', 'station_staff', 'citizen'];
       case 'station_admin':
-        return ['station_staff'];
+        return ['station_staff', 'citizen'];
       default:
         return [];
     }
@@ -301,7 +345,39 @@ export default function UsersPage() {
 
   const handleClose = () => {
     setShowCreateModal(false);
-    setFormData({ email: "", firstName: "", lastName: "", phone: "", role: "", password: "" });
+    setFormData({ email: "", firstName: "", lastName: "", phone: "", role: "", password: "", organizationId: "", stationId: "" });
+  };
+
+  const handleCreateSubmit = () => {
+    if (!isCreateFormValid()) return;
+    
+    const userData = {
+      ...formData,
+      // Convert empty strings to null for optional fields
+      organizationId: formData.organizationId || null,
+      stationId: formData.stationId || null,
+      phone: formData.phone || null,
+    };
+    
+    createUserMutation.mutate(userData);
+  };
+
+  const isCreateFormValid = () => {
+    const basicFieldsValid = formData.email && formData.firstName && formData.lastName && formData.role && formData.password;
+    
+    if (!basicFieldsValid) return false;
+    
+    // Role-based validation
+    if (formData.role === 'super_admin') {
+      return formData.organizationId !== "";
+    }
+    
+    if (formData.role === 'station_admin' || formData.role === 'station_staff') {
+      return formData.organizationId !== "" && formData.stationId !== "";
+    }
+    
+    // Citizens don't need organization or station
+    return true;
   };
 
   const handleInviteSubmit = (e: React.FormEvent) => {
@@ -309,12 +385,19 @@ export default function UsersPage() {
     sendInvitationMutation.mutate(inviteData);
   };
 
-  const handleDeleteUser = (userObj: any) => {
-    setUserToDelete(userObj);
-    setShowDeleteModal(true);
+  const handleToggleUserActive = (userObj: any) => {
+    toggleActiveUserMutation.mutate(userObj.id);
+  };
+
+  const handleHardDeleteUser = (userObj: any) => {
+    setUserToHardDelete(userObj);
+    setShowHardDeleteModal(true);
   };
 
   const handleEditUser = (userObj: any) => {
+    // Refresh organizations data to ensure it's up-to-date
+    refetchOrganizations();
+    
     setUserToEdit(userObj);
     setEditFormData({
       email: userObj.email,
@@ -334,9 +417,9 @@ export default function UsersPage() {
     setShowMigrateModal(true);
   };
 
-  const confirmDelete = () => {
-    if (userToDelete) {
-      deleteUserMutation.mutate(userToDelete.id);
+  const confirmHardDelete = () => {
+    if (userToHardDelete) {
+      hardDeleteUserMutation.mutate(userToHardDelete.id);
     }
   };
 
@@ -535,25 +618,23 @@ export default function UsersPage() {
                         
                         {/* Users in this organization */}
                         {(users as any[]).map((user: any) => (
-                          <TableRow key={user.id} className="hover:bg-muted/50">
+                          <TableRow 
+                            key={user.id} 
+                            className={`hover:bg-muted/50 ${!user.isActive ? 'opacity-60 bg-muted/20' : ''}`}
+                          >
                             <TableCell className="font-medium">
                               <div className="flex items-center space-x-2">
-                                                                  <span className="text-foreground">{user.firstName} {user.lastName}</span>
-                                {user.isInvited && (
-                                  <Badge variant="outline" className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">
-                                    📧 Invited
-                                  </Badge>
-                                )}
+                                <span className="text-foreground">{user.firstName} {user.lastName}</span>
                               </div>
                             </TableCell>
                             <TableCell>{user.email}</TableCell>
                             <TableCell>{user.phone || "No phone"}</TableCell>
                             <TableCell>{getRoleBadge(user.role)}</TableCell>
                             <TableCell>
-                              {user.organizationName || "Not assigned"}
+                              {user.role === 'citizen' ? "Citizen" : (user.organizationName || "Not assigned")}
                             </TableCell>
                             <TableCell>
-                              {user.stationName || "Not assigned"}
+                              {user.role === 'citizen' ? "Citizen" : (user.stationName || "Not assigned")}
                             </TableCell>
                             <TableCell>
                               <Badge 
@@ -580,6 +661,22 @@ export default function UsersPage() {
                                 >
                                   <Edit className="w-4 h-4" />
                                 </Button>
+                                
+                                {/* Toggle Active/Inactive Button */}
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  title={user.isActive ? "Deactivate user" : "Activate user"}
+                                  onClick={() => handleToggleUserActive(user)}
+                                  className={user.isActive 
+                                    ? "text-orange-400 hover:text-orange-300 hover:bg-orange-500/20" 
+                                    : "text-green-400 hover:text-green-300 hover:bg-green-500/20"
+                                  }
+                                  disabled={toggleActiveUserMutation.isPending}
+                                >
+                                  {user.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                                </Button>
+                                
                                 {/* Only show migration button for super admins viewing station_admin/station_staff */}
                                 {currentUser?.role === 'super_admin' && ['station_admin', 'station_staff'].includes(user.role) && (
                                   <Button 
@@ -592,15 +689,21 @@ export default function UsersPage() {
                                     <ArrowRight className="w-4 h-4" />
                                   </Button>
                                 )}
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  title="Delete user"
-                                  onClick={() => handleDeleteUser(user)}
-                                  className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                
+
+                                
+                                {/* Hard Delete - Only for main_admin */}
+                                {currentUser?.role === 'main_admin' && (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    title="Permanently delete user (hard delete)"
+                                    onClick={() => handleHardDeleteUser(user)}
+                                    className="text-red-600 hover:text-red-500 hover:bg-red-600/20"
+                                  >
+                                    <AlertTriangle className="w-4 h-4" />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -755,7 +858,7 @@ export default function UsersPage() {
             
             <div>
               <Label>Role</Label>
-              <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+              <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value, organizationId: "", stationId: "" })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
@@ -769,14 +872,68 @@ export default function UsersPage() {
               </Select>
             </div>
             
+            {/* Organization selection for super_admin, station_admin, and station_staff */}
+            {(formData.role === 'super_admin' || formData.role === 'station_admin' || formData.role === 'station_staff') && (
+              <div>
+                <Label>Organization</Label>
+                <Select value={formData.organizationId} onValueChange={(value) => setFormData({ ...formData, organizationId: value, stationId: "" })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select organization" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {organizations?.map((org: any) => (
+                      <SelectItem key={org.id} value={org.id.toString()}>
+                        {org.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {/* Station selection for station_admin and station_staff */}
+            {(formData.role === 'station_admin' || formData.role === 'station_staff') && formData.organizationId && (
+              <div>
+                <Label>Station</Label>
+                <Select value={formData.stationId} onValueChange={(value) => setFormData({ ...formData, stationId: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select station" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {stations?.filter((station: any) => station.organisation_id === formData.organizationId).map((station: any) => (
+                      <SelectItem key={station.id} value={station.id.toString()}>
+                        {station.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
             <div>
               <Label>Password</Label>
-              <Input
-                type="password"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                placeholder="Password"
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder="Password"
+                  className="pr-12"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
           
@@ -785,48 +942,73 @@ export default function UsersPage() {
               Cancel
             </Button>
             <Button
-              disabled={!formData.email || !formData.firstName || !formData.lastName || !formData.role || !formData.password}
+              disabled={!isCreateFormValid() || createUserMutation.isPending}
+              onClick={handleCreateSubmit}
               className="bg-red-600 hover:bg-red-700"
             >
-              Create User
+              {createUserMutation.isPending ? "Creating..." : "Create User"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+
+
+      {/* Hard Delete Confirmation Modal */}
+      <Dialog open={showHardDeleteModal} onOpenChange={setShowHardDeleteModal}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this user? This action cannot be undone.
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              Permanently Delete User
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3">
+                <div className="text-red-600 font-medium">
+                  ⚠️ DANGEROUS ACTION - This will permanently remove the user from the database.
+                </div>
+                <div>This action:</div>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li>Cannot be undone</li>
+                  <li>Will completely remove all user data</li>
+                  <li>May break referential integrity if other records reference this user</li>
+                  <li>Should only be used for test data cleanup</li>
+                </ul>
+              </div>
             </DialogDescription>
           </DialogHeader>
           
-          {userToDelete && (
+          {userToHardDelete && (
             <div className="py-4">
-              <p className="text-sm text-gray-600">
-                You are about to delete:
+              <p className="text-sm text-gray-600 mb-2">
+                You are about to permanently delete:
               </p>
-              <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg mt-2">
-                <p className="font-medium">{userToDelete.firstName} {userToDelete.lastName}</p>
-                <p className="text-sm text-gray-600">{userToDelete.email}</p>
-                <p className="text-sm text-gray-600">Role: {userToDelete.role.replace('_', ' ')}</p>
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 rounded-lg">
+                <p className="font-medium text-red-800 dark:text-red-200">
+                  {userToHardDelete.firstName} {userToHardDelete.lastName}
+                </p>
+                <p className="text-sm text-red-600 dark:text-red-400">{userToHardDelete.email}</p>
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  Role: {userToHardDelete.role.replace('_', ' ')}
+                </p>
+                <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                  Status: {userToHardDelete.isActive ? 'Active' : 'Inactive'}
+                </p>
               </div>
             </div>
           )}
           
           <div className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => setShowDeleteModal(false)}>
+            <Button variant="outline" onClick={() => setShowHardDeleteModal(false)}>
               Cancel
             </Button>
             <Button 
               variant="destructive" 
-              onClick={confirmDelete}
-              disabled={deleteUserMutation.isPending}
+              onClick={confirmHardDelete}
+              disabled={hardDeleteUserMutation.isPending}
+              className="bg-red-600 hover:bg-red-700"
             >
-              {deleteUserMutation.isPending ? 'Deleting...' : 'Delete User'}
+              {hardDeleteUserMutation.isPending ? 'Permanently Deleting...' : 'Permanently Delete'}
             </Button>
           </div>
         </DialogContent>

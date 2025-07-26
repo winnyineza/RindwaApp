@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "ff3c31f8-2b96-493c-89b3-4f2467d16e82"
+      }
+    },
+    "android": {
+      "package": "com.winnyineza.rindwaemergencyplatform"
+    }
+  }
+}

@@ -44,7 +44,14 @@ export const userRegistrationSchema = z.object({
 });
 
 export const userLoginSchema = z.object({
-  email: emailSchema,
+  emailOrPhone: z.string()
+    .min(1, 'Email or phone number is required')
+    .refine((value) => {
+      // Check if it's a valid email or phone number
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const phoneRegex = /^\+?[\d\s\-\(\)]+$/;
+      return emailRegex.test(value) || phoneRegex.test(value);
+    }, 'Please enter a valid email address or phone number'),
   password: z.string().min(1, 'Password is required')
 });
 
@@ -54,6 +61,45 @@ export const userUpdateSchema = z.object({
   email: emailSchema.optional(),
   phone: phoneSchema,
 }).partial();
+
+// === OTP VALIDATIONS ===
+export const otpRequestSchema = z.object({
+  email: emailSchema,
+  phone: z
+    .string()
+    .min(10, 'Phone number must be at least 10 digits')
+    .regex(/^\+?[\d\s\-\(\)]+$/, 'Please enter a valid phone number format'),
+  purpose: z.enum(['registration', 'login', 'password_reset', 'phone_verification']),
+  deliveryMethod: z.enum(['sms', 'email', 'dual']).default('dual')
+});
+
+export const otpVerificationSchema = z.object({
+  email: emailSchema,
+  phone: z
+    .string()
+    .min(10, 'Phone number must be at least 10 digits')
+    .regex(/^\+?[\d\s\-\(\)]+$/, 'Please enter a valid phone number format'),
+  otpCode: z
+    .string()
+    .length(6, 'OTP code must be exactly 6 digits')
+    .regex(/^\d{6}$/, 'OTP code must contain only numbers'),
+  purpose: z.enum(['registration', 'login', 'password_reset', 'phone_verification'])
+});
+
+export const mobileRegistrationSchema = z.object({
+  email: emailSchema,
+  phone: z
+    .string()
+    .min(10, 'Phone number must be at least 10 digits')
+    .regex(/^\+?[\d\s\-\(\)]+$/, 'Please enter a valid phone number format'),
+  firstName: nameSchema,
+  lastName: nameSchema,
+  password: passwordSchema,
+  confirmPassword: z.string()
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"]
+});
 
 // === INCIDENT VALIDATIONS ===
 export const incidentCreationSchema = z.object({
@@ -202,6 +248,9 @@ export const validateRequest = <T>(schema: z.ZodSchema<T>, data: unknown) => {
 export type UserRegistration = z.infer<typeof userRegistrationSchema>;
 export type UserLogin = z.infer<typeof userLoginSchema>;
 export type UserUpdate = z.infer<typeof userUpdateSchema>;
+export type OTPRequest = z.infer<typeof otpRequestSchema>;
+export type OTPVerification = z.infer<typeof otpVerificationSchema>;
+export type MobileRegistration = z.infer<typeof mobileRegistrationSchema>;
 export type IncidentCreation = z.infer<typeof incidentCreationSchema>;
 export type IncidentUpdate = z.infer<typeof incidentUpdateSchema>;
 export type OrganizationCreation = z.infer<typeof organizationCreationSchema>;

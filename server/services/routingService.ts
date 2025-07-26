@@ -342,8 +342,8 @@ export class EnhancedRoutingService {
       const stations = await sequelize.query(
         `SELECT s.id, s.name, s.location, o.name as "orgName"
          FROM stations s 
-         JOIN organizations o ON s."organizationId" = o.id 
-         WHERE o.name ILIKE :orgPattern AND s."isActive" = true`,
+         JOIN organizations o ON s.organisation_id = o.id 
+         WHERE o.name ILIKE :orgPattern AND s.is_active = true`,
         {
           replacements: { 
             orgPattern: organizationType === 'health' ? '%Health%' : 

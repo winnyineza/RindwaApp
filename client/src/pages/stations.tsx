@@ -39,7 +39,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/utils";
-import { getStations, getUsers, getOrganizations, getIncidents } from "@/lib/api";
+import { getStations, getUsers, getOrganizations, getIncidents, getRecentActivities, getStationStaff } from "@/lib/api";
 import StationsMap from "@/components/maps/StationsMap";
 import ComprehensiveLocationPicker from "@/components/maps/ComprehensiveLocationPicker";
 
@@ -147,6 +147,19 @@ export default function EnhancedStationsPage() {
     enabled: user?.role === 'main_admin' || user?.role === 'super_admin',
   });
 
+  const { data: recentActivities = [] } = useQuery({
+    queryKey: ['/api/activities/recent'],
+    queryFn: () => getRecentActivities(5),
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Fetch staff data for selected station
+  const { data: stationStaff = [], isLoading: staffLoading } = useQuery({
+    queryKey: ['/api/stations/staff', selectedStation?.id],
+    queryFn: () => selectedStation?.id ? getStationStaff(selectedStation.id.toString()) : Promise.resolve([]),
+    enabled: !!selectedStation?.id && showStaffModal,
+  });
+
   // Data processing and analytics
   const processedData = useMemo(() => {
     // Calculate analytics
@@ -157,9 +170,11 @@ export default function EnhancedStationsPage() {
     const totalActiveIncidents = stations.reduce((sum, s) => sum + (s.activeIncidents || 0), 0);
     const avgUtilization = totalCapacity > 0 ? (totalStaff / totalCapacity) * 100 : 0;
     
-    // Performance metrics
-    const avgResponseTime = stations.reduce((sum, s) => sum + (s.responseTime || 15), 0) / stations.length;
-    const avgPerformanceScore = stations.reduce((sum, s) => sum + (s.performanceScore || 85), 0) / stations.length;
+    // Performance metrics - using real data from API
+    const avgResponseTime = stations.length > 0 ? 
+      stations.reduce((sum, s) => sum + (s.responseTime || 0), 0) / stations.length : 0;
+    const avgPerformanceScore = stations.length > 0 ? 
+      stations.reduce((sum, s) => sum + (s.performanceScore || 0), 0) / stations.length : 0;
     
     // Organizations breakdown - filtered based on user role
     const relevantOrganizations = user?.role === 'main_admin' ? organizations : 
@@ -1151,7 +1166,7 @@ export default function EnhancedStationsPage() {
                           <p className="text-sm text-green-600 font-medium">Fastest Response</p>
                           <p className="text-lg font-bold text-green-900">
                             {filteredStations.length > 0 ? 
-                              `${Math.min(...filteredStations.map(s => s.responseTime || 15))} min`
+                              `${filteredStations.length > 0 ? Math.min(...filteredStations.map(s => s.responseTime || 0)) : 0} min`
                               : 'N/A'
                             }
                           </p>
@@ -1187,8 +1202,12 @@ export default function EnhancedStationsPage() {
                       <div className="h-32 bg-gradient-to-r from-blue-100 to-green-100 rounded-lg flex items-center justify-center">
                         <div className="text-center">
                           <TrendingUp className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                          <p className="text-sm font-medium text-green-700">Overall Performance: +5.2%</p>
-                          <p className="text-xs text-muted-foreground">Compared to last month</p>
+                          <p className="text-sm font-medium text-green-700">
+                            Performance Score: {processedData.avgPerformanceScore > 0 ? `${processedData.avgPerformanceScore.toFixed(1)}%` : 'N/A'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {processedData.avgPerformanceScore > 0 ? 'Based on resolution rates & response times' : 'No performance data available'}
+                          </p>
                         </div>
                       </div>
                     </CardContent>
@@ -1200,26 +1219,25 @@ export default function EnhancedStationsPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                          <span className="text-muted-foreground">Station Alpha reported in</span>
-                          <span className="text-xs text-muted-foreground">2m ago</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                          <span className="text-muted-foreground">New incident assigned</span>
-                          <span className="text-xs text-muted-foreground">5m ago</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                          <span className="text-muted-foreground">Staff shortage alert</span>
-                          <span className="text-xs text-muted-foreground">12m ago</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                          <span className="text-muted-foreground">Incident resolved</span>
-                          <span className="text-xs text-muted-foreground">18m ago</span>
-                        </div>
+                        {recentActivities.length > 0 ? (
+                          recentActivities.map((activity: any) => (
+                            <div key={activity.id} className="flex items-center gap-2 text-sm">
+                              <div className={`w-2 h-2 ${activity.color} rounded-full ${
+                                activity.type === 'incident_created' ? 'animate-pulse' : ''
+                              }`}></div>
+                              <span className="text-muted-foreground truncate flex-1">
+                                {activity.description}
+                              </span>
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                {activity.timeAgo}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-sm text-muted-foreground text-center py-4">
+                            No recent activities
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -1259,11 +1277,11 @@ export default function EnhancedStationsPage() {
                                 <div className="text-xs text-muted-foreground">Active Incidents</div>
                               </div>
                               <div className="text-center">
-                                <div className="text-2xl font-bold text-purple-600">
-                                  {orgStations.length > 0 ? 
-                                    (orgStations.reduce((sum, s) => sum + (s.responseTime || 15), 0) / orgStations.length).toFixed(1)
-                                    : '0'
-                                  } min
+                                                                  <div className="text-2xl font-bold text-purple-600">
+                                    {orgStations.length > 0 ? 
+                                      (orgStations.reduce((sum, s) => sum + (s.responseTime || 0), 0) / orgStations.length).toFixed(1)
+                                      : '0.0'
+                                    } min
                                 </div>
                                 <div className="text-xs text-muted-foreground">Avg Response</div>
                               </div>
@@ -1948,34 +1966,41 @@ export default function EnhancedStationsPage() {
             <div className="lg:col-span-2">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Current Staff ({selectedStation?.currentStaff || 0})</CardTitle>
+                  <CardTitle className="text-base">Current Staff ({stationStaff.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {/* Mock staff data */}
-                    {Array.from({ length: selectedStation?.currentStaff || 0 }, (_, i) => (
-                      <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                            <Users className="h-4 w-4 text-blue-600" />
-                          </div>
-                          <div>
-                            <div className="font-medium">Staff Member {i + 1}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {i === 0 ? 'Station Admin' : i === 1 ? 'Deputy Admin' : 'Station Staff'}
+                    {staffLoading ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p>Loading staff data...</p>
+                      </div>
+                    ) : stationStaff.length > 0 ? (
+                      stationStaff.map((staff: any) => (
+                        <div key={staff.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                              <Users className="h-4 w-4 text-blue-600" />
+                            </div>
+                            <div>
+                              <div className="font-medium">{staff.name}</div>
+                              <div className="text-sm text-muted-foreground capitalize">
+                                {staff.role.replace('_', ' ')}
+                              </div>
+                              <div className="text-xs text-muted-foreground">{staff.email}</div>
                             </div>
                           </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={staff.status === 'active' ? 'default' : 'secondary'}>
+                              {staff.status}
+                            </Badge>
+                            <Button variant="ghost" size="sm">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline">Active</Badge>
-                          <Button variant="ghost" size="sm">
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    
-                    {(selectedStation?.currentStaff || 0) === 0 && (
+                      ))
+                    ) : (
                       <div className="text-center py-8 text-muted-foreground">
                         <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
                         <p>No staff currently assigned to this station</p>

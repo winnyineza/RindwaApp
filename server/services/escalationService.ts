@@ -247,13 +247,14 @@ export class EscalationService {
       const escalationLevelName = this.getEscalationLevelName((incident as any).escalationLevel);
       const escalatedByName = escalatedBy ? `${escalatedBy.firstName} ${escalatedBy.lastName}` : 'System';
       
-      await this.storage.createNotification({
-        userId: user.id,
-        title: `Incident Escalated to ${escalationLevelName}`,
-        message: `Incident "${(incident as any).title}" has been escalated to ${escalationLevelName} level by ${escalatedByName}. Priority: ${(incident as any).priority}. Please review immediately.`,
-        type: 'warning',
-        isRead: false
-      });
+              await this.storage.createNotification({
+          userId: user.id,
+          title: `Incident Escalated to ${escalationLevelName}`,
+          message: `Incident "${(incident as any).title}" has been escalated to ${escalationLevelName} level by ${escalatedByName}. Priority: ${(incident as any).priority}. Please review immediately.`,
+          type: 'INCIDENT_ESCALATED',
+          isRead: false,
+          actionRequired: true
+        });
 
       console.log(`Escalation notification sent to ${user.firstName} ${user.lastName} (${user.role})`);
     } catch (error) {

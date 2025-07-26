@@ -109,7 +109,7 @@ interface PerformanceData {
 }
 
 export default function AdvancedAnalyticsPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [timeRange, setTimeRange] = useState("30d");
   const [organizationFilter, setOrganizationFilter] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
@@ -142,6 +142,7 @@ export default function AdvancedAnalyticsPage() {
         return withinRange && withinOrg;
       });
     },
+    enabled: !authLoading && !!user, // Only run query when user is authenticated
     refetchInterval: 30000, // Refresh every 30 seconds
     staleTime: 15000,
   });
@@ -149,12 +150,14 @@ export default function AdvancedAnalyticsPage() {
   const { data: users = [] } = useQuery({
     queryKey: ['/api/users'],
     queryFn: getUsers,
+    enabled: !authLoading && !!user,
     staleTime: 60000,
   });
 
   const { data: organizations = [] } = useQuery({
     queryKey: ['/api/organizations'], 
     queryFn: getOrganizations,
+    enabled: !authLoading && !!user,
     staleTime: 300000,
   });
 
@@ -171,14 +174,16 @@ export default function AdvancedAnalyticsPage() {
     const resolutionRate = totalIncidents > 0 ? (resolvedIncidents / totalIncidents) * 100 : 0;
     const escalationRate = totalIncidents > 0 ? (escalatedIncidents / totalIncidents) * 100 : 0;
 
-    // Calculate average response time (mock data - in real app, this would come from server)
-    const avgResponseTime = incidents.reduce((acc: number, incident: any) => {
-      if (incident.assignedAt && incident.createdAt) {
+    // Calculate average response time from real incident data
+    const incidentsWithResponseTime = incidents.filter((incident: any) => 
+      incident.assignedAt && incident.createdAt
+    );
+    
+    const avgResponseTime = incidentsWithResponseTime.length > 0 ? 
+      incidentsWithResponseTime.reduce((acc: number, incident: any) => {
         const responseTime = new Date(incident.assignedAt).getTime() - new Date(incident.createdAt).getTime();
         return acc + (responseTime / (1000 * 60)); // Convert to minutes
-      }
-      return acc + 45; // Default mock response time
-    }, 0) / totalIncidents;
+      }, 0) / incidentsWithResponseTime.length : 0;
 
     // Calculate average resolution time
     const resolvedWithTime = incidents.filter((i: any) => i.status === 'resolved' && i.resolvedAt);
@@ -417,7 +422,9 @@ export default function AdvancedAnalyticsPage() {
     }
   };
 
-  if (incidentsLoading) {
+  const isLoading = authLoading || incidentsLoading;
+
+  if (isLoading) {
     return (
       <DashboardLayout title="Dashboard" subtitle="Welcome to Rindwa Admin">
         <div className="p-6">
@@ -489,7 +496,7 @@ export default function AdvancedAnalyticsPage() {
 
         {/* KPI Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          {kpiCards.map((kpi, index) => (
+          {kpiCards.length > 0 ? kpiCards.map((kpi, index) => (
             <Card key={index} className="bg-card/50 backdrop-blur-sm border-border hover:bg-card/80 hover:scale-105 transition-all duration-200 relative overflow-hidden">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
@@ -515,10 +522,14 @@ export default function AdvancedAnalyticsPage() {
                 </div>
               </CardContent>
             </Card>
-          ))}
+          )) : (
+            <div className="col-span-full text-center py-8">
+              <p className="text-muted-foreground">No data available for the selected time range.</p>
+            </div>
+          )}
         </div>
 
-        {analyticsData && (
+        {analyticsData ? (
           <Tabs defaultValue="trends" className="space-y-6">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="trends">Trends</TabsTrigger>
@@ -832,7 +843,12 @@ export default function AdvancedAnalyticsPage() {
                         <Activity className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                         <div>
                           <div className="font-medium text-foreground">Trend Analysis</div>
-                          <div className="text-sm text-muted-foreground">Incident volume has increased by 12% compared to previous period</div>
+                          <div className="text-sm text-muted-foreground">
+                            {analyticsData.kpis.totalIncidents > 0 ? 
+                              `Processing ${analyticsData.kpis.totalIncidents} incidents with current data` : 
+                              'No incident trend data available'
+                            }
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -841,6 +857,19 @@ export default function AdvancedAnalyticsPage() {
               </div>
             </TabsContent>
           </Tabs>
+        ) : (
+          <div className="text-center py-12">
+            <div className="max-w-md mx-auto">
+              <h3 className="text-lg font-medium text-foreground mb-2">No Analytics Data</h3>
+              <p className="text-muted-foreground mb-4">
+                No incident data is available for the selected time range and filters.
+              </p>
+              <Button variant="outline" onClick={() => window.location.reload()}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh Page
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </DashboardLayout>

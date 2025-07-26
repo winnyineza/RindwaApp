@@ -25,10 +25,13 @@ export const createWelcomeEmail = (userName: string, organizationName: string): 
         </head>
         <body>
           <div class="container">
-            <div class="header">
-              <h1>Welcome to Rindwa</h1>
-              <p>Emergency Management Platform</p>
+                      <div class="header">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <img src="https://your-server-domain.com/logo.png" alt="Rindwa Logo" style="width: 60px; height: 60px; object-fit: contain;" />
             </div>
+            <h1>Welcome to Rindwa</h1>
+            <p>Emergency Management Platform</p>
+          </div>
             <div class="content">
               <h2>Hello ${userName}!</h2>
               <p>Welcome to the Rindwa Emergency Management Platform. You have been successfully added to <strong>${organizationName}</strong>.</p>
@@ -175,7 +178,7 @@ export const createPasswordResetEmail = (userName: string, resetToken: string): 
   const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-redirect/${resetToken}`;
   
   return {
-    subject: 'Password Reset Request - Rindwa Platform',
+    subject: '🔐 Password Reset Request - Rindwa Platform',
     html: `
       <!DOCTYPE html>
       <html>
@@ -184,35 +187,67 @@ export const createPasswordResetEmail = (userName: string, resetToken: string): 
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Password Reset</title>
           <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: #dc2626; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
-            .button { display: inline-block; background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
-            .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 6px; margin: 20px 0; }
-            .footer { text-align: center; padding: 20px; font-size: 14px; color: #666; }
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+            .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+            .header h1 { margin: 0; font-size: 28px; font-weight: bold; }
+            .logo { width: 60px; height: 60px; object-fit: contain; margin-bottom: 15px; }
+            .content { background: #f9fafb; padding: 30px; }
+            .button { 
+              display: inline-block; 
+              background: #dc2626; 
+              color: #ffffff !important; 
+              padding: 15px 30px; 
+              text-decoration: none; 
+              border-radius: 6px; 
+              margin: 20px 0; 
+              font-weight: bold; 
+              font-size: 16px;
+              border: none;
+              text-align: center;
+              font-family: Arial, sans-serif;
+            }
+            .button:hover { background: #b91c1c; color: #ffffff !important; }
+            .button:visited { color: #ffffff !important; }
+            .button:active { color: #ffffff !important; }
+            .button:link { color: #ffffff !important; }
+            /* Force white text in all email clients */
+            a.button { color: #ffffff !important; }
+            a.button:link { color: #ffffff !important; }
+            a.button:visited { color: #ffffff !important; }
+            a.button:hover { color: #ffffff !important; }
+            a.button:active { color: #ffffff !important; }
+            .warning { background: #fef3c7; border: 2px solid #f59e0b; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .warning strong { color: #92400e; }
+            .footer { background: #1f2937; color: #9ca3af; padding: 20px; text-align: center; font-size: 14px; border-radius: 0 0 8px 8px; }
+            .url-display { word-break: break-all; background: #f3f4f6; padding: 15px; border-radius: 6px; border: 1px solid #d1d5db; font-family: monospace; }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
-              <h1>Password Reset</h1>
-              <p>Reset your Rindwa account password</p>
+              <div style="text-align: center; margin-bottom: 15px;">
+                <img src="${process.env.FRONTEND_URL || 'http://localhost:5173'}/logo.png" alt="Rindwa Logo" class="logo" />
+              </div>
+              <h1>🔐 Password Reset</h1>
+              <p style="margin: 10px 0 0 0; font-size: 18px;">Reset your Rindwa account password</p>
             </div>
             <div class="content">
-              <h2>Hello ${userName}!</h2>
-              <p>We received a request to reset your password for your Rindwa account.</p>
+              <h2 style="color: #1f2937; margin-bottom: 20px;">Hello ${userName}!</h2>
+              <p style="color: #4b5563;">We received a request to reset your password for your Rindwa account.</p>
               
-              <p>To reset your password, click the button below:</p>
+              <p style="color: #4b5563;">To reset your password, click the button below:</p>
               
-              <a href="${resetUrl}" class="button">Reset Password</a>
+              <p style="text-align: center;">
+                <a href="${resetUrl}" class="button">Reset Password</a>
+              </p>
               
-              <p>Or copy and paste this link into your browser:</p>
-              <p style="word-break: break-all; color: #666;">${resetUrl}</p>
+              <p style="color: #4b5563;">Or copy and paste this link into your browser:</p>
+              <div class="url-display">${resetUrl}</div>
               
               <div class="warning">
-                <h3>Important Security Information:</h3>
-                <ul>
+                <h3 style="margin-top: 0; color: #92400e;">Important Security Information:</h3>
+                <ul style="margin: 10px 0; padding-left: 20px; color: #92400e;">
                   <li>This link will expire in 1 hour</li>
                   <li>If you didn't request this reset, please ignore this email</li>
                   <li>Never share this link with anyone</li>

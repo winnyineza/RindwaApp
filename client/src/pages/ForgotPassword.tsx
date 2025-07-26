@@ -107,9 +107,16 @@ export default function ForgotPassword() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="h-12 w-12 rounded-full bg-red-600 flex items-center justify-center">
-              <Mail className="h-6 w-6 text-white" />
+          <div className="flex justify-center mb-6">
+            <div className="h-16 w-16 relative">
+              <div className="w-full h-full rounded-xl bg-gradient-to-br from-red-500 to-red-700 shadow-xl shadow-red-500/25 flex items-center justify-center p-1 transition-transform duration-300 hover:scale-105">
+                <img 
+                  src="/logo.png" 
+                  alt="Rindwa Logo" 
+                  className="w-full h-full object-contain rounded-lg filter drop-shadow-md"
+                />
+              </div>
+              <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/15 to-transparent pointer-events-none"></div>
             </div>
           </div>
           <CardTitle className="text-2xl">Forgot Password?</CardTitle>

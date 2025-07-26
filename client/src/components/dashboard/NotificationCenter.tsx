@@ -19,7 +19,7 @@ import { useLocation } from 'wouter';
 interface Notification {
   id: number;
   userId: number;
-  type: 'info' | 'warning' | 'success' | 'error' | 'incident_update' | 'emergency_alert' | 'assignment' | 'escalation';
+  type: 'INCIDENT_CREATED' | 'INCIDENT_UPDATED' | 'INCIDENT_ASSIGNED' | 'INCIDENT_ESCALATED' | 'INCIDENT_RESOLVED' | 'INCIDENT_COMMENTED' | 'EMERGENCY_CONTACT_ADDED' | 'USER_INVITED' | 'SYSTEM_ALERT' | 'PROFILE_UPDATED' | 'PASSWORD_CHANGED';
   title: string;
   message: string;
   isRead: boolean;
@@ -206,20 +206,25 @@ export const NotificationCenter = () => {
   const getNotificationIcon = (type: string) => {
     const iconClass = "h-4 w-4 flex-shrink-0";
     switch (type) {
-      case 'success':
+      case 'INCIDENT_RESOLVED':
+      case 'PROFILE_UPDATED':
         return <Check className={`${iconClass} text-green-500`} />;
-      case 'warning':
+      case 'INCIDENT_ESCALATED':
+      case 'PASSWORD_CHANGED':
         return <AlertTriangle className={`${iconClass} text-yellow-500`} />;
-      case 'error':
+      case 'SYSTEM_ALERT':
         return <X className={`${iconClass} text-red-500`} />;
-      case 'incident_update':
+      case 'INCIDENT_CREATED':
+      case 'INCIDENT_UPDATED':
         return <Shield className={`${iconClass} text-blue-500`} />;
-      case 'emergency_alert':
+      case 'EMERGENCY_CONTACT_ADDED':
         return <AlertCircle className={`${iconClass} text-red-600`} />;
-      case 'assignment':
+      case 'INCIDENT_ASSIGNED':
         return <UserPlus className={`${iconClass} text-purple-500`} />;
-      case 'escalation':
+      case 'INCIDENT_COMMENTED':
         return <AlertTriangle className={`${iconClass} text-orange-500`} />;
+      case 'USER_INVITED':
+        return <UserPlus className={`${iconClass} text-green-600`} />;
       default:
         return <Info className={`${iconClass} text-blue-500`} />;
     }

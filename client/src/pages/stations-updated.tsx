@@ -17,6 +17,48 @@ import { useAuth } from "@/hooks/useAuth";
 import ComprehensiveLocationPicker from "@/components/maps/ComprehensiveLocationPicker";
 import { formatDate } from "@/lib/dateUtils";
 
+// Rwanda Districts and their Sectors mapping
+const DISTRICT_SECTORS_MAP: Record<string, string[]> = {
+  // Kigali City
+  "Gasabo": ["Bumbogo", "Gatsata", "Gikomero", "Gisozi", "Jabana", "Jali", "Kacyiru", "Kimihurura", "Kimisagara", "Kinyinya", "Ndera", "Nduba", "Remera", "Rusororo", "Rutunga"],
+  "Kicukiro": ["Gahanga", "Gatenga", "Kagarama", "Kanombe", "Kicukiro", "Kigarama", "Masaka", "Niboye", "Nyarugunga", "Rujugiro"],
+  "Nyarugenge": ["Gitega", "Kanyinya", "Kigali", "Kimisagara", "Mageragere", "Muhima", "Nyakabanda", "Nyamirambo", "Nyarugenge", "Rwezamenyo"],
+  
+  // Eastern Province
+  "Bugesera": ["Gashora", "Juru", "Kamabuye", "Mareba", "Mayange", "Musenyi", "Mwogo", "Nemba", "Ngeruka", "Ntarama", "Nyamata", "Nyarugenge", "Rilima", "Ruhuha", "Rweru", "Shyara"],
+  "Gatsibo": ["Gasange", "Gatsibo", "Gitoki", "Kageyo", "Kiramuruzi", "Kiziguro", "Murambi", "Ngarama", "Nyagihanga", "Remera", "Rugarama", "Rwimbogo"],
+  "Kayonza": ["Gahini", "Kabare", "Kabarondo", "Mukarange", "Murama", "Murundi", "Ndego", "Nyamirama", "Rukara", "Ruramira", "Rwinkwavu"],
+  "Kirehe": ["Gatore", "Kigarama", "Kigina", "Kirehe", "Mahama", "Mpanga", "Musaza", "Nasho", "Nyamugali", "Nyarubuye"],
+  "Ngoma": ["Gashanda", "Jarama", "Karembo", "Kazo", "Mugesera", "Murama", "Remera", "Rukira", "Rukumberi", "Sake", "Zaza"],
+  "Nyagatare": ["Gatunda", "Karangazi", "Katabagemu", "Kiyombe", "Matimba", "Mimuri", "Musheli", "Nyagatare", "Rukomo", "Rwempasha", "Rwimiyaga", "Tabagwe"],
+  "Rwamagana": ["Fumbwe", "Gahengeri", "Gishari", "Karenge", "Kigabiro", "Muhazi", "Munyaga", "Munyiginya", "Musha", "Muyumbu", "Mwulire", "Nzige", "Rubona", "Rurenge"],
+  
+  // Northern Province
+  "Burera": ["Bungwe", "Butaro", "Cyanika", "Cyeru", "Gahunga", "Gatebe", "Gitovu", "Kagogo", "Kinoni", "Kinyababa", "Nemba", "Rugarama", "Rugendabari", "Ruhunde", "Rusarabuye", "Rwerere"],
+  "Gakenke": ["Busengo", "Coko", "Cyabingo", "Gakenke", "Gashenyi", "Mugunga", "Janja", "Kamubuga", "Karambo", "Kivuruga", "Mataba", "Minazi", "Muhondo", "Muyongwe", "Nemba", "Ruli", "Rusasa", "Rushashi"],
+  "Gicumbi": ["Bukure", "Bwisige", "Byumba", "Cyumba", "Gicumbi", "Kaniga", "Manyagiro", "Miyove", "Kageyo", "Mukarange", "Muko", "Mutete", "Nyamiyaga", "Nyankenke", "Rubaya", "Rukomo", "Rushaki", "Rutare", "Ruvune", "Rwamiko", "Shangasha"],
+  "Musanze": ["Busogo", "Cyuve", "Gacaca", "Gashaki", "Gataraga", "Kimonyi", "Kinigi", "Muhoza", "Muko", "Musanze", "Nkotsi", "Nyange", "Remera", "Rwaza", "Shingiro"],
+  "Rulindo": ["Base", "Burega", "Bushoki", "Buyoga", "Cyinzuzi", "Cyungo", "Kinihira", "Kisaro", "Mbogo", "Murambi", "Ngoma", "Ntarabana", "Rukozo", "Rusiga", "Shyorongi", "Tumba"],
+  
+  // Southern Province
+  "Gisagara": ["Gikonko", "Gishubi", "Kansi", "Kaziba", "Kibirizi", "Kibumbwe", "Muganza", "Mukindo", "Musha", "Ndora", "Nyanza", "Save"],
+  "Huye": ["Gishamvu", "Huye", "Karama", "Kigoma", "Kinazi", "Maraba", "Mbazi", "Mukura", "Ngoma", "Rsama", "Ruhashya", "Rusatira", "Rwaniro", "Simbi", "Tumba"],
+  "Kamonyi": ["Gacurabwenge", "Karama", "Kayenzi", "Kayumbu", "Mugina", "Musambira", "Nyamiyaga", "Nyarubaka", "Runda", "Ruzo"],
+  "Muhanga": ["Cyeza", "Kabacuzi", "Kibangu", "Kiyumba", "Muhanga", "Mukura", "Mushishiro", "Nyabinoni", "Nyamabuye", "Nyamiyaga", "Rongi", "Rugendabari"],
+  "Nyamagabe": ["Buruhukiro", "Cyanika", "Gatare", "Kaduha", "Kamegeri", "Kibirizi", "Kibumbwe", "Kitongo", "Mbazi", "Munini", "Musebeya", "Mushubi", "Nkomane", "Tare", "Uwinkingi"],
+  "Nyanza": ["Busasamana", "Busoro", "Cyabakamyi", "Kibirizi", "Kigoma", "Mukingo", "Ntyazo", "Nyagisozi", "Rwabicuma"],
+  "Ruhango": ["Bweramana", "Byimana", "Kabagali", "Kinazi", "Kinihira", "Muhanga", "Muyira", "Ntongwe", "Ruhango"],
+  
+  // Western Province
+  "Karongi": ["Bwishyura", "Gashari", "Gishyita", "Gitesi", "Murambi", "Mutuntu", "Rugabano", "Ruganda", "Rurimbi"],
+  "Ngororero": ["Bwira", "Gatumba", "Hindiro", "Kabaya", "Kageyo", "Matyazo", "Muhororo", "Muhanda", "Ndaro", "Ngororero", "Nyange", "Sovu"],
+  "Nyabihu": ["Bigogwe", "Jenda", "Jomba", "Kabatwa", "Karago", "Kintobo", "Mukamira", "Rambura", "Rurembo", "Shyira"],
+  "Rubavu": ["Bugeshi", "Busasamana", "Cyanzarwe", "Gisenyi", "Kageyo", "Kanama", "Mudende", "Nyagisagara", "Nyakiliba", "Nyamyumba", "Rubavu", "Rugerero"],
+  "Rusizi": ["Butare", "Bugarama", "Gitambi", "Giheke", "Gihundwe", "Hirwa", "Kamembe", "Muganza", "Nkanka", "Nkungu", "Nyakabuye", "Nyakarenzo", "Rwimbogo"],
+  "Rutsiro": ["Boneza", "Gihango", "Kigeyo", "Kivumu", "Manihira", "Mukura", "Musasa", "Mushonyi", "Mushubati", "Nyabirasi", "Ruhango"],
+  "Nyaruguru": ["Cyahinda", "Gatare", "Kibeho", "Kibumbwe", "Mata", "Munini", "Ngera", "Ngoma", "Nyabimata", "Nyagisozi", "Ruramba", "Rusenge"]
+};
+
 export default function StationsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -40,6 +82,23 @@ export default function StationsPage() {
     queryFn: () => getStations(user?.organisationId),
     enabled: !!user?.organisationId,
   });
+
+  // Get available districts
+  const availableDistricts = Object.keys(DISTRICT_SECTORS_MAP).sort();
+
+  // Get available sectors based on selected district
+  const getAvailableSectors = (district: string): string[] => {
+    return district ? (DISTRICT_SECTORS_MAP[district] || []).sort() : [];
+  };
+
+  // Handle district change and reset sector
+  const handleDistrictChange = (district: string) => {
+    setFormData({
+      ...formData,
+      district,
+      sector: "" // Reset sector when district changes
+    });
+  };
 
   const createMutation = useMutation({
     mutationFn: createStation,
@@ -86,7 +145,16 @@ export default function StationsPage() {
     if (editingStation) {
       updateMutation.mutate({ id: editingStation.id, data: formData });
     } else {
-      createMutation.mutate(formData);
+      // Ensure organizationId is populated for station creation
+      const stationData = {
+        ...formData,
+        organizationId: user?.organisationId || formData.organisationId, // Use user's org ID
+        // Convert strings to appropriate types
+        latitude: formData.latitude ? parseFloat(formData.latitude) : null,
+        longitude: formData.longitude ? parseFloat(formData.longitude) : null,
+      };
+      console.log('Creating station with data:', stationData);
+      createMutation.mutate(stationData);
     }
   };
 
@@ -94,11 +162,14 @@ export default function StationsPage() {
     setEditingStation(station);
     setFormData({
       name: station.name,
-      region: station.region || "",
       address: station.address || "",
-      phone: station.phone || "",
+      contactNumber: station.phone || "",
       district: station.district || "",
       sector: station.sector || "",
+      organisationId: station.organisationId || "",
+      capacity: station.capacity?.toString() || "",
+      latitude: station.latitude?.toString() || "",
+      longitude: station.longitude?.toString() || "",
     });
     setShowEditModal(true);
   };
@@ -139,20 +210,24 @@ export default function StationsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Stations Management</h1>
-            <p className="text-gray-600 dark:text-gray-300">
+            <h1 className="text-2xl font-bold tracking-tight">Stations Management</h1>
+            <p className="text-muted-foreground">
               Manage stations within your organization
             </p>
           </div>
-          <Button 
-            onClick={() => setShowCreateModal(true)}
-            className="bg-red-600 hover:bg-red-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Create Station
-          </Button>
+          {/* Show create button for admin roles */}
+          {(user?.role === 'main_admin' || user?.role === 'super_admin' || user?.role === 'station_admin') && (
+            <Button 
+              onClick={() => setShowCreateModal(true)}
+              className="bg-red-600 hover:bg-red-700 text-white shadow-md hover:shadow-lg transition-all duration-200 whitespace-nowrap"
+              size="default"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Create Station
+            </Button>
+          )}
         </div>
 
         <Card>
@@ -189,7 +264,7 @@ export default function StationsPage() {
                       <TableCell>{station.sector || "Not specified"}</TableCell>
                       <TableCell>{station.phone || "No phone"}</TableCell>
                       <TableCell>
-                        {formatDate(station.createdAt || station.created_at)}
+                        {formatDate(station.createdAt)}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-2">
@@ -228,17 +303,20 @@ export default function StationsPage() {
           </DialogHeader>
           
           <div className="space-y-4">
-            <ComprehensiveLocationPicker
-              onLocationSelect={handleLocationSelect}
-              initialLocation={
-                formData.latitude && formData.longitude ? {
-                  lat: parseFloat(formData.latitude),
-                  lng: parseFloat(formData.longitude),
-                  address: formData.address
-                } : undefined
-              }
-              placeholder="Search for station location (e.g., Remera Police Station, Kigali)"
-            />
+            <div>
+              <Label>Station Location *</Label>
+              <ComprehensiveLocationPicker
+                onLocationSelect={handleLocationSelect}
+                initialLocation={
+                  formData.latitude && formData.longitude ? {
+                    lat: parseFloat(formData.latitude),
+                    lng: parseFloat(formData.longitude),
+                    address: formData.address
+                  } : undefined
+                }
+                placeholder="Search for station location (e.g., Remera Police Station, Kigali)"
+              />
+            </div>
             <div>
               <Label>Station Name</Label>
               <Input
@@ -251,67 +329,43 @@ export default function StationsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>District *</Label>
-                <Select value={formData.district} onValueChange={(value) => setFormData({...formData, district: value})}>
+                <Select value={formData.district} onValueChange={handleDistrictChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select district" />
                   </SelectTrigger>
                   <SelectContent>
-                    {["Gasabo", "Kicukiro", "Nyarugenge", "Bugesera", "Gatsibo", "Kayonza", 
-                      "Kirehe", "Ngoma", "Nyagatare", "Rwamagana", "Burera", "Gakenke", 
-                      "Gicumbi", "Musanze", "Rulindo", "Gisagara", "Huye", "Kamonyi", 
-                      "Muhanga", "Nyamagabe", "Nyanza", "Ruhango", "Karongi", "Ngororero", 
-                      "Nyabihu", "Rubavu", "Rusizi", "Rutsiro", "Nyaruguru"].map((district) => (
+                    {availableDistricts.map((district) => (
                       <SelectItem key={district} value={district}>{district}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label>Sector</Label>
-                <Input
-                  value={formData.sector}
-                  onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
-                  placeholder="Enter sector name"
-                />
+                <Label>Sector *</Label>
+                <Select 
+                  value={formData.sector} 
+                  onValueChange={(value) => setFormData({...formData, sector: value})}
+                  disabled={!formData.district}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={!formData.district ? "Select district first" : "Select sector"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getAvailableSectors(formData.district).map((sector) => (
+                      <SelectItem key={sector} value={sector}>{sector}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             
             <div>
               <Label>Phone</Label>
               <Input
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                value={formData.contactNumber}
+                onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })}
                 placeholder="Station phone number"
               />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>District</Label>
-                <select
-                  value={formData.district}
-                  onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">Select District</option>
-                  {districts.map((district) => (
-                    <option key={district} value={district}>{district}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <Label>Sector</Label>
-                <select
-                  value={formData.sector}
-                  onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">Select Sector</option>
-                  {sectors.map((sector) => (
-                    <option key={sector} value={sector}>{sector}</option>
-                  ))}
-                </select>
-              </div>
             </div>
           </div>
           
@@ -321,7 +375,7 @@ export default function StationsPage() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={!formData.name || !formData.district || createMutation.isPending}
+              disabled={!formData.name || !formData.district || !formData.sector || !formData.latitude || !formData.longitude || createMutation.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
               {createMutation.isPending ? "Creating..." : "Create Station"}
@@ -349,70 +403,46 @@ export default function StationsPage() {
               />
             </div>
             
-                      <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>District *</Label>
-              <Select value={formData.district} onValueChange={(value) => setFormData({...formData, district: value})}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select district" />
-                </SelectTrigger>
-                <SelectContent>
-                  {["Gasabo", "Kicukiro", "Nyarugenge", "Bugesera", "Gatsibo", "Kayonza", 
-                    "Kirehe", "Ngoma", "Nyagatare", "Rwamagana", "Burera", "Gakenke", 
-                    "Gicumbi", "Musanze", "Rulindo", "Gisagara", "Huye", "Kamonyi", 
-                    "Muhanga", "Nyamagabe", "Nyanza", "Ruhango", "Karongi", "Ngororero", 
-                    "Nyabihu", "Rubavu", "Rusizi", "Rutsiro", "Nyaruguru"].map((district) => (
-                    <SelectItem key={district} value={district}>{district}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>District *</Label>
+                <Select value={formData.district} onValueChange={handleDistrictChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select district" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableDistricts.map((district) => (
+                      <SelectItem key={district} value={district}>{district}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Sector *</Label>
+                <Select 
+                  value={formData.sector} 
+                  onValueChange={(value) => setFormData({...formData, sector: value})}
+                  disabled={!formData.district}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={!formData.district ? "Select district first" : "Select sector"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getAvailableSectors(formData.district).map((sector) => (
+                      <SelectItem key={sector} value={sector}>{sector}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label>Sector</Label>
-              <Input
-                value={formData.sector}
-                onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
-                placeholder="Enter sector name"
-              />
-            </div>
-          </div>
             
             <div>
               <Label>Phone</Label>
               <Input
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                value={formData.contactNumber}
+                onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })}
                 placeholder="Station phone number"
               />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>District</Label>
-                <select
-                  value={formData.district}
-                  onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">Select District</option>
-                  {districts.map((district) => (
-                    <option key={district} value={district}>{district}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <Label>Sector</Label>
-                <select
-                  value={formData.sector}
-                  onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="">Select Sector</option>
-                  {sectors.map((sector) => (
-                    <option key={sector} value={sector}>{sector}</option>
-                  ))}
-                </select>
-              </div>
             </div>
           </div>
           
@@ -422,7 +452,7 @@ export default function StationsPage() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={!formData.name || !formData.region || updateMutation.isPending}
+              disabled={!formData.name || !formData.district || updateMutation.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
               {updateMutation.isPending ? "Updating..." : "Update Station"}

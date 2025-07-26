@@ -81,7 +81,7 @@ export default function IncidentWorkflowPage() {
       keywords: ["fire", "burn", "smoke", "flames", "explosion", "burning"],
       organization: "Rwanda National Police",
       priority: "high",
-      responseTime: "5 minutes",
+      responseTime: process.env.REACT_APP_FIRE_RESPONSE_TIME || "5 minutes",
       workflow: [
         "Immediate dispatch to location",
         "Contact Fire Department",
@@ -96,7 +96,7 @@ export default function IncidentWorkflowPage() {
       keywords: ["medical", "health", "ambulance", "injury", "accident", "sick"],
       organization: "Ministry of Health",
       priority: "critical",
-      responseTime: "3 minutes",
+      responseTime: process.env.REACT_APP_MEDICAL_RESPONSE_TIME || "3 minutes",
       workflow: [
         "Dispatch ambulance immediately",
         "Contact nearest hospital",

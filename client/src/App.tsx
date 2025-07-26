@@ -24,6 +24,7 @@ import IncidentHistoryPage from "@/pages/incident-history";
 import PrivacyPolicyPage from "@/pages/privacy-policy";
 import TermsOfServicePage from "@/pages/terms-of-service";
 import HelpCenterPage from "@/pages/help-center";
+import ContactsPage from "@/pages/contacts";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import ResetRedirect from "@/pages/ResetRedirect";
@@ -67,6 +68,7 @@ function Router() {
       <Route path="/incidents" component={IncidentsPage} />
       <Route path="/users" component={UsersPage} />
       <Route path="/invitations" component={InvitationsPage} />
+      <Route path="/contacts" component={ContactsPage} />
       <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/audit" component={AuditPage} />
       <Route path="/reports" component={ReportsPage} />

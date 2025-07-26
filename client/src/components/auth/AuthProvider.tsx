@@ -8,7 +8,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     if (!loading) {
-      // Allow access to public pages without authentication
+      // Handle authentication-based navigation
+      const publicRoutes = ["/login", "/forgot-password", "/reset-password", "/accept-invitation"];
+      const isPublicRoute = publicRoutes.some(route => 
+        location === route || 
+        location.startsWith("/reset-password/") || 
+        location.startsWith("/accept-invitation/")
+      );
+
+      console.log("AuthProvider navigation check:", {
+        user: !!user,
+        loading,
+        location,
+        isPublicRoute
+      });
+
+      if (!user && !isPublicRoute) {
+        console.log("AuthProvider: No user, redirecting to login");
+        setLocation("/login");
+      } else if (user && isPublicRoute && location !== "/dashboard") {
+        console.log("AuthProvider: User authenticated, redirecting from public route to dashboard");
+        setLocation("/dashboard");
+      }
+    }
+  }, [user, loading, location, setLocation]);
+
+  // Additional effect to ensure immediate redirect when user becomes authenticated
+  useEffect(() => {
+    if (user && !loading) {
       const publicRoutes = ["/login", "/forgot-password", "/reset-password", "/accept-invitation"];
       const isPublicRoute = publicRoutes.some(route => 
         location === route || 
@@ -16,13 +43,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         location.startsWith("/accept-invitation/")
       );
       
-      if (!user && !isPublicRoute) {
-        setLocation("/login");
-      } else if (user && location === "/login") {
+      if (isPublicRoute && location !== "/dashboard") {
+        console.log("AuthProvider: User authenticated, backup redirect to dashboard");
         setLocation("/dashboard");
       }
     }
-  }, [user, loading, location, setLocation]);
+  }, [user]);
 
   if (loading) {
     return (

@@ -56,54 +56,61 @@ interface EmailParams {
 }
 
 export async function sendEmail(params: EmailParams): Promise<boolean> {
+  console.log(`📧 Attempting to send email to: ${params.to}`);
+  console.log(`📧 Subject: ${params.subject}`);
+
   // Try Resend first (primary service)
   if (resend) {
     try {
-      // For testing: if sending to your verified email, use Resend; otherwise skip to SendGrid
-      if (params.to === "w.ineza@alustudent.com") {
-        const emailData: any = {
-          from: "onboarding@resend.dev",
-          to: params.to,
-          subject: params.subject,
-        };
-        
-        if (params.html) emailData.html = params.html;
-        if (params.text) emailData.text = params.text;
-        
-        const result = await resend.emails.send(emailData);
-        
-        if (result.error) {
-          console.log(`Resend failed with error: ${JSON.stringify(result.error)}`);
-          throw new Error(`Resend API error: ${result.error.message || JSON.stringify(result.error)}`);
-        }
-        
-        if (result.data && result.data.id) {
-  
-          return true;
-        }
-      } else {
-        // Skip Resend for unverified emails and go straight to SendGrid
-        console.log(`Skipping Resend for ${params.to} (not your verified email), trying SendGrid...`);
-        throw new Error("Skipping to SendGrid for unverified recipient");
+      console.log(`📧 Trying Resend service for ${params.to}...`);
+      
+      const emailData: any = {
+        from: "onboarding@resend.dev", // Using the verified domain
+        to: params.to,
+        subject: params.subject,
+      };
+      
+      if (params.html) emailData.html = params.html;
+      if (params.text) emailData.text = params.text;
+      
+      const result = await resend.emails.send(emailData);
+      
+      if (result.error) {
+        console.error(`❌ Resend failed with error: ${JSON.stringify(result.error)}`);
+        throw new Error(`Resend API error: ${result.error.message || JSON.stringify(result.error)}`);
       }
+      
+      if (result.data && result.data.id) {
+        console.log(`✅ Email sent successfully via Resend to ${params.to}, ID: ${result.data.id}`);
+        return true;
+      }
+      
+      console.warn(`⚠️ Resend returned no error but also no data ID`);
+      throw new Error("Resend: No email ID returned");
+      
     } catch (error: any) {
-      console.error('Resend email error:', error);
+      console.error('❌ Resend email error:', error);
+      
       // If it's a domain verification error, explain and fall back
       if (error?.error?.statusCode === 403) {
-        console.error(`Resend domain verification issue detected.`);
+        console.error(`🚫 Resend domain verification issue detected.`);
         console.error(`Error: ${error.error?.error || 'Domain not verified'}`);
-        console.error(`Falling back to SendGrid for ${params.to}...`);
+        console.error(`📧 Falling back to SendGrid for ${params.to}...`);
+      } else {
+        console.error(`📧 Resend failed for ${params.to}, falling back to SendGrid...`);
       }
     }
+  } else {
+    console.log(`⚠️ Resend not configured, trying SendGrid...`);
   }
 
   // Fallback to SendGrid
   if (!SENDGRID_API_KEY) {
-    console.error("Cannot send email: No SendGrid API key configured");
+    console.error("❌ Cannot send email: No SendGrid API key configured");
     return false;
   }
   
-  console.log(`Attempting to send email via SendGrid to ${params.to}...`);
+  console.log(`📧 Attempting to send email via SendGrid to ${params.to}...`);
 
   try {
     const emailData: any = {
@@ -116,11 +123,11 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
     if (params.text) emailData.text = params.text;
     
     await sgMail.send(emailData);
-    console.log(`Email sent successfully via SendGrid to ${params.to}`);
+    console.log(`✅ Email sent successfully via SendGrid to ${params.to}`);
     return true;
   } catch (error: any) {
     // Handle SendGrid specific errors
-    console.error('SendGrid email error:', error);
+    console.error('❌ SendGrid email error:', error);
     
     // Log detailed error information
     if (error.response?.body?.errors) {
@@ -134,9 +141,10 @@ export async function sendEmail(params: EmailParams): Promise<boolean> {
     console.error(`=== EMAIL DELIVERY FAILED ===`);
     console.error(`To: ${params.to}`);
     console.error(`Subject: ${params.subject}`);
-    console.error(`From: ${params.from || "no-reply@rindwa.com"}`);
+    console.error(`From: ${params.from || "w.ineza@alustudent.com"}`);
     console.error(`Error: ${error.message || error}`);
-    console.error(`API Key starts with: ${SENDGRID_API_KEY ? SENDGRID_API_KEY.substring(0, 10) + '...' : 'Not configured'}`);
+    console.error(`SendGrid API Key configured: ${SENDGRID_API_KEY ? 'Yes' : 'No'}`);
+    console.error(`Resend API Key configured: ${RESEND_API_KEY ? 'Yes' : 'No'}`);
     console.error(`=============================`);
     
     return false;
@@ -182,16 +190,18 @@ Rindwa Emergency Management Team
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rindwa Platform Invitation</title>
   <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background: #dc2626; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
-    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+    .container { max-width: 600px; margin: 0 auto; background: #ffffff; }
+    .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+    .header h1 { margin: 0; font-size: 28px; font-weight: bold; }
+    .logo { width: 60px; height: 60px; object-fit: contain; margin-bottom: 15px; }
+    .content { background: #f9fafb; padding: 30px; }
     .button { 
       display: inline-block !important; 
       background: #dc2626 !important; 
       background-color: #dc2626 !important;
       color: #ffffff !important; 
-      padding: 12px 24px !important; 
+      padding: 15px 30px !important; 
       text-decoration: none !important; 
       border-radius: 6px !important; 
       margin: 20px 0 !important; 
@@ -211,19 +221,23 @@ Rindwa Emergency Management Team
     a.button:visited { color: #ffffff !important; }
     a.button:hover { color: #ffffff !important; }
     a.button:active { color: #ffffff !important; }
-    .details { background: white; padding: 15px; border-radius: 6px; margin: 20px 0; }
-    .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+    .details { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #dc2626; }
+    .footer { background: #1f2937; color: #9ca3af; padding: 20px; text-align: center; font-size: 14px; border-radius: 0 0 8px 8px; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>Rindwa Emergency Management Platform</h1>
+      <div style="text-align: center; margin-bottom: 15px;">
+        <img src="${baseUrl || getFrontendUrl()}/logo.png" alt="Rindwa Logo" class="logo" />
+      </div>
+      <h1>🎉 You're Invited!</h1>
+      <p style="margin: 10px 0 0 0; font-size: 18px;">Rindwa Emergency Management Platform</p>
     </div>
     <div class="content">
-      <h2>You're Invited!</h2>
-      <p>Hello,</p>
-      <p>You have been invited by <strong>${inviterName}</strong> to join the Rindwa Emergency Management Platform as a <strong>${role.replace('_', ' ')}</strong>.</p>
+      <h2 style="color: #1f2937; margin-bottom: 20px;">Welcome to Our Team!</h2>
+      <p style="color: #4b5563;">Hello,</p>
+      <p style="color: #4b5563;">You have been invited by <strong>${inviterName}</strong> to join the Rindwa Emergency Management Platform as a <strong>${role.replace('_', ' ')}</strong>.</p>
       
       ${organizationName || stationName ? `
       <div class="details">

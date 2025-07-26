@@ -374,50 +374,7 @@ export default function InvitationsPage() {
           </CardContent>
         </Card>
 
-        {/* Recently Accepted Invitations */}
-        {filteredInvitations?.some(inv => inv.isUsed) && (
-          <Card className="border-0 shadow-lg bg-white dark:bg-gray-800">
-            <CardHeader className="bg-gray-50 dark:bg-gray-900/50">
-              <CardTitle className="flex items-center space-x-3 text-gray-900 dark:text-white">
-                <div className="p-2 bg-green-100 dark:bg-green-900/50 rounded-lg">
-                  <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                </div>
-                <span className="text-lg font-semibold">Recently Accepted Invitations</span>
-              </CardTitle>
-              <CardDescription className="text-gray-600 dark:text-gray-400 mt-2">
-                These invitations have been accepted and users are now active in the Users tab
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="space-y-4">
-                {filteredInvitations?.filter(inv => inv.isUsed).slice(0, 5).map((invitation) => (
-                  <div key={invitation.id} className="flex items-center justify-between p-4 rounded-lg bg-green-500/10 border border-green-500/20 hover:bg-green-500/20 transition-colors">
-                    <div className="flex items-center space-x-4">
-                      <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-lg">
-                        <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                      </div>
-                      <div>
-                        <div className="font-medium text-foreground">{invitation.email}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {invitation.role.replace('_', ' ')} • {invitation.organizationName || 'N/A'}
-                        </div>
-                      </div>
-                    </div>
-                    <Badge className="bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 font-medium">
-                      ✓ Accepted
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 p-4 bg-muted border rounded-lg">
-                <p className="text-sm text-foreground text-center">
-                  💡 <strong>Note:</strong> Accepted invitations automatically create user accounts. 
-                  You can find these new users in the <strong>Users</strong> tab.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+
       </div>
     </DashboardLayout>
   );

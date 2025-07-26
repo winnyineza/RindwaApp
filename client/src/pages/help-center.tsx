@@ -135,8 +135,12 @@ export default function HelpCenterPage() {
   };
 
   const handleContactSupport = () => {
-    // This could open a modal or redirect to a contact form
-    alert('Support contact information:\n\nEmail: support@rindwa.rw\nPhone: +250 788 123 456\n\nWe typically respond within 24 hours.');
+    // Get contact information from environment or config
+    const supportEmail = process.env.REACT_APP_SUPPORT_EMAIL || 'support@rindwa.rw';
+    const supportPhone = process.env.REACT_APP_SUPPORT_PHONE || '+250 788 123 456';
+    const responseTime = process.env.REACT_APP_SUPPORT_RESPONSE_TIME || '24 hours';
+    
+    alert(`Support contact information:\n\nEmail: ${supportEmail}\nPhone: ${supportPhone}\n\nWe typically respond within ${responseTime}.`);
   };
 
   return (
@@ -269,7 +273,7 @@ export default function HelpCenterPage() {
             </Button>
           </div>
           <div className="mt-3 text-sm text-gray-500">
-            We typically respond within 24 hours
+                            We typically respond within {process.env.REACT_APP_SUPPORT_RESPONSE_TIME || '24 hours'}
           </div>
         </CardContent>
       </Card>
